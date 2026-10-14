@@ -113,13 +113,15 @@ You can also just run `WindowsStats.exe` without installing.
 | Disk temperature, SSD/HDD | Windows storage queries | Not needed |
 | GPU temperature, fan | Display driver (what Task Manager shows) | Not needed (dedicated GPUs) |
 | GPU clock, voltage, extra values | LibreHardwareMonitor helper | Not needed |
-| CPU temperature, power, fans, motherboard voltages | LibreHardwareMonitor + PawnIO driver | **Needed** |
+| CPU temperature, power, fans, motherboard voltages | LibreHardwareMonitor + PawnIO driver | **Requires elevation, not available in this unsigned release** |
 
 Advanced sensors are off by default (**Settings > Sensors**). When switched on, a separate process,
-`sensors\WindowsStats.Sensors.exe`, runs (about 80–100 MB of memory). Windows Stats **never installs
-a driver**. For CPU temperatures, install PawnIO yourself from its [official site](https://pawnio.eu)
-and switch on "Run the helper as administrator" (a UAC prompt at every start). Sensors a device does
-not support show **"Not available on this device"** instead of a made-up value.
+`sensors\WindowsStats.Sensors.exe`, runs as the current user (about 80–100 MB of memory).
+Windows Stats **never installs a driver**. **Administrator launch is intentionally disabled:**
+this unsigned, per-user installation stores the helper in a user-writable directory, so elevating
+it would allow a modified helper to run with administrator privileges. PawnIO-only readings such
+as CPU temperatures may therefore be unavailable, even if you separately install PawnIO from its
+[official site](https://pawnio.eu). Unsupported readings show **"Not available on this device"**.
 
 ## Privacy and security
 
@@ -184,7 +186,7 @@ powershell -ExecutionPolicy Bypass -File scripts\compare-taskmgr.ps1   # compare
 
 **Why do SmartScreen or antivirus products warn about the download?** The executable is currently unsigned. SmartScreen can warn about an unrecognized publisher, and antivirus heuristics may flag a new release. Download only from this repository's Releases page; if flagged, submit the specific file to the vendor for review. Do not disable protection or assume every detection is a false positive.
 
-**Why is CPU temperature unavailable?** Advanced CPU sensors require the optional LibreHardwareMonitor helper and the separately installed PawnIO driver. Enable the helper in Settings > Sensors and, when needed, its administrator mode. Windows Stats never installs a driver automatically. Hardware support varies; unavailable values remain unavailable.
+**Why is CPU temperature unavailable?** Advanced CPU sensors require the optional LibreHardwareMonitor helper and the separately installed PawnIO driver. Enable the helper in Settings > Sensors; administrator mode is disabled in this unsigned release. Windows Stats never installs a driver automatically. Hardware support varies; unavailable values remain unavailable.
 
 **Can I show the strip on every monitor?** The strip currently appears only on the primary monitor's taskbar. Multi-monitor strips are not supported yet.
 
