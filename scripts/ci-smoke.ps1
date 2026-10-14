@@ -35,9 +35,17 @@ try {
     $version = (Invoke-CheckedCli -CliArguments @('--version') -Name 'version') -join "`n"
     if ($version.Trim() -ne "Windows Stats $ExpectedVersion") { throw "Unexpected CLI version: $version" }
     $lines = @(Invoke-CheckedCli -CliArguments @('--dump', '2', '1000') -Name 'samples' | Where-Object { $_.Trim() })
-    if ($lines.Count -ne 2) { throw "Expected 2 JSON samples, received $($lines.Count)" }
-    foreach ($line in $lines) {
-        $sample = $line | ConvertFrom-Json
+    $records = @($lines | ForEach-Object { $_ | ConvertFrom-Json })
+    $info = @($records | Where-Object { $_.PSObject.Properties.Name -contains 'info' })
+    $summary = @($records | Where-Object { $_.PSObject.Properties.Name -contains 'summary' })
+    $samples = @($records | Where-Object { $_.PSObject.Properties.Name -contains 't_ms' })
+    if ($info.Count -ne 1 -or $summary.Count -ne 1 -or $samples.Count -ne 2 -or $records.Count -ne 4) {
+        throw 'Expected one info record, two samples and one summary in the JSON-lines dump'
+    }
+    if ($info[0].info.version -ne $ExpectedVersion) { throw 'Dump version does not match the CLI version' }
+    if ($summary[0].summary.samples -ne 2 -or $summary[0].summary.interval_ms -ne 1000) { throw 'Dump summary does not match the requested sampling' }
+    if ($samples[1].t_ms -le $samples[0].t_ms) { throw 'Sample timestamps did not advance' }
+    foreach ($sample in $samples) {
         if ($null -eq $sample.cpu -or $sample.cpu -lt 0 -or $sample.cpu -gt 1) { throw 'CPU sample is invalid' }
         if (@($sample.cpu_cores).Count -lt 1) { throw 'CPU cores were not sampled' }
         if ($sample.mem_total -le 0 -or $sample.mem_used -le 0 -or $sample.mem_used -gt $sample.mem_total) { throw 'Memory sample is invalid' }

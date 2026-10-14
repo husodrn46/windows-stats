@@ -170,6 +170,9 @@ WindowsStats.exe --version
 
 ## Tests
 
+Automated Windows builds, unit tests, CLI CPU/memory smoke checks and the optional sensor-helper build run on GitHub Actions. See [CI scope and limitations](docs/ci.md). They do not replace taskbar and physical-hardware testing.
+
+
 ```powershell
 cargo test --release                                                   # unit tests
 powershell -ExecutionPolicy Bypass -File scripts\compare-taskmgr.ps1   # compare with Windows' own counters
@@ -188,6 +191,10 @@ powershell -ExecutionPolicy Bypass -File scripts\compare-taskmgr.ps1   # compare
 **Why does the strip float or hide some widgets?** When Windows refuses taskbar embedding, it floats in the same area. On Windows 11 it may move sides or hide trailing widgets to avoid covering task buttons. It hides over a full-screen application.
 
 **Where do I report a problem?** Open an issue with the Windows version/build, application version and steps to reproduce. Review `%APPDATA%\WindowsStats\WindowsStats.log` and remove private information before attaching it.
+
+## Code signing policy
+
+Releases are currently unsigned. See our [code signing policy and privacy policy](CODE_SIGNING.md) for the intended approval process; signing is not yet enabled.
 
 ## Acknowledgements
 

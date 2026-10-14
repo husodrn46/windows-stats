@@ -156,6 +156,9 @@ WindowsStats.exe --version
 
 ## Testler
 
+Windows derlemesi, birim testleri, CLI CPU/bellek kontrolü ve isteğe bağlı sensör yardımcısının derlemesi GitHub Actions üzerinde çalışır. [CI kapsamı ve sınırlamaları](docs/ci.md) fiziksel donanım ve görev çubuğu testlerinden ayrıdır.
+
+
 ```powershell
 cargo test --release                                                   # birim testleri
 powershell -ExecutionPolicy Bypass -File scripts\compare-taskmgr.ps1   # Görev Yöneticisi sayaçlarıyla karşılaştırma
@@ -174,6 +177,10 @@ powershell -ExecutionPolicy Bypass -File scripts\compare-taskmgr.ps1   # Görev 
 **Şerit neden yüzüyor veya bazı bileşenler gizleniyor?** Windows görev çubuğuna gömmeye izin vermediğinde aynı bölgede yüzen moda geçer. Windows 11'de görev düğmelerini kapatmamak için taraf değiştirebilir veya sondaki bileşenleri gizleyebilir. Tam ekran uygulamalarda gizlenir.
 
 **Sorunları nereye bildirebilirim?** Windows sürümü/derlemesi, uygulama sürümü ve tekrar etme adımlarıyla bir issue açın. `%APPDATA%\WindowsStats\WindowsStats.log` dosyasını eklemeden önce kişisel bilgileri temizleyin.
+
+## Kod imzalama politikası
+
+Sürümler şu an imzasızdır. Planlanan onay süreci ve gizlilik ilkeleri [Code signing policy](CODE_SIGNING.md) belgesinde yer alır; imzalama henüz etkin değildir.
 
 ## Teşekkürler
 
