@@ -1,4 +1,4 @@
-# winstats UI strings: English (UK). Same as en; kept as its own locale to match the Windows language list.
+# Windows Stats UI strings: English (UK). Same as en; kept as its own locale to match the Windows language list.
 # Keys are section.key; {name} placeholders are filled in by the program.
 
 [module]
@@ -54,17 +54,7 @@ start_with_windows = "Start with Windows"
 task_manager = "Task Manager"
 open_config = "Open config file"
 reload_config = "Reload config"
-about = "About winstats"
-check_updates = "Check for updates"
-update_available = "Update available: {v}"
-remote = "Remote machines"
-discovery = "Discover agents on the network"
-share = "Share this machine on the network"
-discovery_off = "Turn on discovery to find agents"
-no_agents = "No agents found yet"
-connect = "Connect"
-connected = "Connected"
-forget = "Forget"
+about = "About Windows Stats"
 exit = "Exit"
 na = "(n/a)"
 small = "Small"
@@ -99,9 +89,7 @@ load = "Load"
 system = "System"
 user = "User"
 idle = "Idle"
-load_avg = "Load average"
 clock = "Clock"
-offline = "offline"
 sockets = "Sockets"
 p_cores = "P-cores ({n})"
 e_cores = "E-cores ({n})"
@@ -167,14 +155,3 @@ na = "n/a"
 [about]
 version = "Version {v}"
 license = "MIT License"
-
-[update]
-title = "winstats update"
-latest = "winstats {v} is the latest version."
-available = "winstats {v} is available (you have {cur}). Open the download page?"
-failed = "Could not check for updates: {err}"
-
-[remote]
-online = "online"
-offline = "offline"
-found = "found"

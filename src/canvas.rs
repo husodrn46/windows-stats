@@ -40,7 +40,6 @@ impl Color {
 }
 
 pub const WHITE: Color = Color::rgb(255, 255, 255);
-pub const BLACK: Color = Color::rgb(0, 0, 0);
 pub const GREEN: Color = Color::rgb(0x4C, 0xAF, 0x50);
 pub const YELLOW: Color = Color::rgb(0xFF, 0xC1, 0x07);
 pub const ORANGE: Color = Color::rgb(0xFF, 0x98, 0x00);
@@ -95,6 +94,28 @@ impl Canvas {
 
     pub fn clear(&mut self) {
         self.px.iter_mut().for_each(|p| *p = 0);
+    }
+
+    /// The pixels as a 32-bit BMP (premultiplied BGRA, alpha kept), for debugging.
+    pub fn save_bmp(&self, path: &std::path::Path) -> std::io::Result<()> {
+        let mut out = Vec::with_capacity(54 + self.px.len() * 4);
+        let size = (self.px.len() * 4) as u32;
+        out.extend_from_slice(b"BM");
+        out.extend_from_slice(&(54 + size).to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+        out.extend_from_slice(&54u32.to_le_bytes());
+        out.extend_from_slice(&40u32.to_le_bytes());
+        out.extend_from_slice(&self.w.to_le_bytes());
+        out.extend_from_slice(&(-self.h).to_le_bytes());
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&32u16.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+        out.extend_from_slice(&size.to_le_bytes());
+        out.extend_from_slice(&[0u8; 16]);
+        for p in &self.px {
+            out.extend_from_slice(&p.to_le_bytes());
+        }
+        std::fs::write(path, out)
     }
 
     #[inline]

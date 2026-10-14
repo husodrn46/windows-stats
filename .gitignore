@@ -21,3 +21,7 @@ desktop.ini
 
 # local notes and plans
 /internal
+
+# project-local toolchain (Rust, llvm-mingw) and scratch output of the dev tools
+/.toolchain
+/.devtmp

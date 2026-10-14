@@ -47,8 +47,6 @@ pub struct Theme {
     pub bar_w: f32,
     /// colour mode per module, indexed like MODULES
     pub modes: [ColorMode; 6],
-    /// vertical label for every widget drawn with this theme (remote machines); None = module name
-    pub label: Option<String>,
     /// series shown in the network popup chart
     pub net_rx: bool,
     pub net_tx: bool,
@@ -68,12 +66,9 @@ impl Theme {
         FontSpec { px: self.s(dip), weight }
     }
 
-    /// Vertical label of a widget: the machine's label for remote widgets, the module's otherwise.
+    /// Vertical label of a widget: the module's three letters.
     pub fn label(&self, k: Kind) -> String {
-        match &self.label {
-            Some(l) if !l.is_empty() => l.chars().take(3).collect::<String>().to_uppercase(),
-            _ => short_label(k).to_string(),
-        }
+        short_label(k).to_string()
     }
 
     pub fn mode(&self, k: Kind) -> ColorMode {
@@ -199,7 +194,7 @@ pub fn is_chart(name: &str) -> bool {
     n.ends_with("_line") || n.ends_with("_chart")
 }
 
-/// "pi4/cpu_line" -> ("pi4", "cpu_line"); "cpu_line" -> ("", "cpu_line").
+/// "machine/cpu_line" -> ("machine", "cpu_line") (winstats remote names); "cpu_line" -> ("", "cpu_line").
 pub fn split_name(name: &str) -> (&str, &str) {
     match name.find('/') {
         Some(p) => (&name[..p], &name[p + 1..]),
@@ -218,8 +213,7 @@ fn block_key(name: &str) -> Option<(String, Kind)> {
     catalog_index(name).map(|i| (src.to_string(), CATALOG[i].0))
 }
 
-/// Enable or disable a widget in the config list, keeping widgets of one module (of one
-/// machine) together. Remote names carry their machine as a prefix: "pi4/cpu_line".
+/// Enable or disable a widget in the config list, keeping widgets of one module together.
 pub fn toggle_widget(list: &mut Vec<String>, name: &str) {
     if let Some(i) = list.iter().position(|n| n == name) {
         list.remove(i);
@@ -231,36 +225,26 @@ pub fn toggle_widget(list: &mut Vec<String>, name: &str) {
         list.insert(pos + 1, name.to_string());
         return;
     }
-    if key.0.is_empty() {
-        // local: module order of the catalog, before any remote widget
-        let pos = list
-            .iter()
-            .position(|n| {
-                let (src, _) = split_name(n);
-                !src.is_empty() || catalog_index(n).map(|j| j > idx).unwrap_or(false)
-            })
-            .unwrap_or(list.len());
-        list.insert(pos, name.to_string());
-    } else {
-        // remote: after the last widget of the same machine, else at the end
-        let pos = list.iter().rposition(|n| split_name(n).0 == key.0).map(|p| p + 1).unwrap_or(list.len());
-        list.insert(pos, name.to_string());
-    }
+    // first widget of its module: in the module order of the catalog
+    let pos = list.iter().position(|n| catalog_index(n).map(|j| j > idx).unwrap_or(false)).unwrap_or(list.len());
+    list.insert(pos, name.to_string());
 }
 
 /// True for a name the builder understands.
 pub fn is_known(name: &str) -> bool {
-    catalog_index(name).is_some()
+    split_name(name).0.is_empty() && catalog_index(name).is_some()
 }
 
-/// Drop unknown names (and remote widgets of machines that are no longer configured) so
-/// config indices line up with the built widget list.
-pub fn normalize(list: &mut Vec<String>, remotes: &[String]) {
+/// Drop unknown names (and "machine/widget" names of the remote machines winstats had) and
+/// duplicates, so config indices line up with the built widget list.
+pub fn normalize(list: &mut Vec<String>) {
+    let mut seen: Vec<String> = Vec::new();
     list.retain(|n| {
-        let (src, _) = split_name(n);
-        let ok = is_known(n) && (src.is_empty() || remotes.iter().any(|r| r == src));
-        if !ok {
-            crate::log!("unknown widget '{n}' in config, dropped");
+        let ok = is_known(n) && !seen.contains(n);
+        if ok {
+            seen.push(n.clone());
+        } else {
+            crate::log!("unknown or repeated widget '{n}' in config, dropped");
         }
         ok
     });
@@ -269,20 +253,6 @@ pub fn normalize(list: &mut Vec<String>, remotes: &[String]) {
 /// Move every local widget of `kind` one block to the left (-1) or right (+1).
 pub fn move_module(list: &mut Vec<String>, kind: Kind, dir: i32) {
     move_block(list, &(String::new(), kind), dir)
-}
-
-/// Move every widget of a remote machine (all its modules) one block to the left or right.
-pub fn move_source(list: &mut Vec<String>, source: &str, dir: i32) {
-    // blocks by machine only: local widgets keep their module blocks
-    let key = |n: &str| -> Option<(String, Kind)> {
-        let (src, _) = split_name(n);
-        if src.is_empty() {
-            block_key(n)
-        } else {
-            Some((src.to_string(), Kind::Cpu))
-        }
-    };
-    move_by(list, &(source.to_string(), Kind::Cpu), dir, key)
 }
 
 fn move_block(list: &mut Vec<String>, which: &(String, Kind), dir: i32) {
@@ -321,44 +291,11 @@ pub trait Widget {
     fn kind(&self) -> Kind;
     fn width(&self, c: &mut Canvas, t: &Theme, m: &MetricsData) -> i32;
     fn draw(&self, c: &mut Canvas, x: i32, y: i32, t: &Theme, m: &MetricsData);
-    /// remote machine key this widget shows; None for the local machine
-    fn source(&self) -> Option<&str> {
-        None
-    }
-}
-
-/// A widget of a remote machine: the same drawing, a different data source (picked by the caller).
-struct Remote {
-    key: String,
-    inner: Box<dyn Widget>,
-}
-
-impl Widget for Remote {
-    fn kind(&self) -> Kind {
-        self.inner.kind()
-    }
-    fn width(&self, c: &mut Canvas, t: &Theme, m: &MetricsData) -> i32 {
-        self.inner.width(c, t, m)
-    }
-    fn draw(&self, c: &mut Canvas, x: i32, y: i32, t: &Theme, m: &MetricsData) {
-        self.inner.draw(c, x, y, t, m)
-    }
-    fn source(&self) -> Option<&str> {
-        Some(&self.key)
-    }
 }
 
 pub fn build(names: &[String]) -> Vec<Box<dyn Widget>> {
     let mut out: Vec<Box<dyn Widget>> = Vec::new();
     for n in names {
-        let (src, base) = split_name(n);
-        if !src.is_empty() {
-            // "pi4/cpu_line": build the plain widget, wrap it with its machine
-            if let Some(w) = build(&[base.to_string()]).pop() {
-                out.push(Box::new(Remote { key: src.to_string(), inner: w }));
-            }
-            continue;
-        }
         match n.as_str() {
             "cpu_bars" => out.push(Box::new(CpuBars)),
             "cpu_line" => out.push(Box::new(Line(Kind::Cpu))),

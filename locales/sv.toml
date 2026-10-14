@@ -1,4 +1,4 @@
-# winstats: svenska
+# Windows Stats: svenska
 
 [module]
 cpu = "Processor"
@@ -53,17 +53,7 @@ start_with_windows = "Starta med Windows"
 task_manager = "Aktivitetshanteraren"
 open_config = "Öppna konfigurationsfilen"
 reload_config = "Läs in konfigurationen igen"
-about = "Om winstats"
-check_updates = "Sök efter uppdateringar"
-update_available = "Uppdatering tillgänglig: {v}"
-remote = "Fjärrmaskiner"
-discovery = "Sök agenter på nätverket"
-share = "Dela den här maskinen på nätverket"
-discovery_off = "Slå på sökning för att hitta agenter"
-no_agents = "Inga agenter hittade ännu"
-connect = "Anslut"
-connected = "Ansluten"
-forget = "Glöm"
+about = "Om Windows Stats"
 exit = "Avsluta"
 na = "(ej tillgängligt)"
 small = "Liten"
@@ -98,9 +88,7 @@ load = "Belastning"
 system = "System"
 user = "Användare"
 idle = "Inaktiv"
-load_avg = "Genomsnittlig last"
 clock = "Klockfrekvens"
-offline = "offline"
 sockets = "Socklar"
 p_cores = "P-kärnor ({n})"
 e_cores = "E-kärnor ({n})"
@@ -166,14 +154,3 @@ na = "–"
 [about]
 version = "Version {v}"
 license = "MIT-licens"
-
-[update]
-title = "Uppdatering av winstats"
-latest = "winstats {v} är den senaste versionen."
-available = "winstats {v} finns tillgänglig (du har {cur}). Öppna nedladdningssidan?"
-failed = "Kunde inte söka efter uppdateringar: {err}"
-
-[remote]
-online = "online"
-offline = "offline"
-found = "hittad"

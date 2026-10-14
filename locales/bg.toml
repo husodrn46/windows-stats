@@ -1,4 +1,4 @@
-# winstats: български
+# Windows Stats: български
 
 [module]
 cpu = "Процесор"
@@ -53,17 +53,7 @@ start_with_windows = "Стартирай с Windows"
 task_manager = "Диспечер на задачите"
 open_config = "Отвори конфигурационния файл"
 reload_config = "Презареди конфигурацията"
-about = "За winstats"
-check_updates = "Провери за обновления"
-update_available = "Налично обновление: {v}"
-remote = "Отдалечени машини"
-discovery = "Търси агенти в мрежата"
-share = "Споделяй тази машина в мрежата"
-discovery_off = "Включете търсенето, за да откриете агенти"
-no_agents = "Все още няма намерени агенти"
-connect = "Свържи"
-connected = "Свързан"
-forget = "Забрави"
+about = "За Windows Stats"
 exit = "Изход"
 na = "(няма данни)"
 small = "Малък"
@@ -98,9 +88,7 @@ load = "Натоварване"
 system = "Система"
 user = "Потребител"
 idle = "Свободен"
-load_avg = "Средно натоварване"
 clock = "Тактова честота"
-offline = "офлайн"
 sockets = "Сокети"
 p_cores = "P-ядра ({n})"
 e_cores = "E-ядра ({n})"
@@ -166,14 +154,3 @@ na = "н/д"
 [about]
 version = "Версия {v}"
 license = "Лиценз MIT"
-
-[update]
-title = "Обновяване на winstats"
-latest = "winstats {v} е последната версия."
-available = "Налична е winstats {v} (вашата е {cur}). Да се отвори ли страницата за изтегляне?"
-failed = "Проверката за обновления не успя: {err}"
-
-[remote]
-online = "онлайн"
-offline = "офлайн"
-found = "намерен"

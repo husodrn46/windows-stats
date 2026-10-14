@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- UI test helper for Windows Stats: screen capture (layered windows included) and mouse
+       input, used by scripts\ui-smoke.ps1. Built into target\uitest (not shipped). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>disable</Nullable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <BaseOutputPath>..\..\target\uitest\bin\</BaseOutputPath>
+    <AssemblyName>uitest</AssemblyName>
+  </PropertyGroup>
+</Project>

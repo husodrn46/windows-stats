@@ -1,4 +1,4 @@
-# winstats UI strings: English (the fallback for every other locale).
+# Windows Stats UI strings: English (the fallback for every other locale).
 # Keys are section.key; {name} placeholders are filled in by the program.
 
 [module]
@@ -54,17 +54,7 @@ start_with_windows = "Start with Windows"
 task_manager = "Task Manager"
 open_config = "Open config file"
 reload_config = "Reload config"
-about = "About winstats"
-check_updates = "Check for updates"
-update_available = "Update available: {v}"
-remote = "Remote machines"
-discovery = "Discover agents on the network"
-share = "Share this machine on the network"
-discovery_off = "Turn on discovery to find agents"
-no_agents = "No agents found yet"
-connect = "Connect"
-connected = "Connected"
-forget = "Forget"
+about = "About Windows Stats"
 exit = "Exit"
 na = "(n/a)"
 small = "Small"
@@ -99,9 +89,7 @@ load = "Load"
 system = "System"
 user = "User"
 idle = "Idle"
-load_avg = "Load average"
 clock = "Clock"
-offline = "offline"
 sockets = "Sockets"
 p_cores = "P-cores ({n})"
 e_cores = "E-cores ({n})"
@@ -124,6 +112,7 @@ processes_private = "Processes (private)"
 kernel_pools = "Kernel and drivers (pools)"
 other_memory = "Other (driver-locked, shared, VMs)"
 available_memory = "Available"
+memory_modules = "Memory modules"
 file_cache = "File cache (inside available)"
 video_memory = "Video memory"
 budget = "Budget"
@@ -165,16 +154,6 @@ capacity = "Capacity"
 na = "n/a"
 
 [about]
+based_on = "Based on winstats by {author} (MIT)"
 version = "Version {v}"
 license = "MIT License"
-
-[update]
-title = "winstats update"
-latest = "winstats {v} is the latest version."
-available = "winstats {v} is available (you have {cur}). Open the download page?"
-failed = "Could not check for updates: {err}"
-
-[remote]
-online = "online"
-offline = "offline"
-found = "found"

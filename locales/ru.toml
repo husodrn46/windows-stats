@@ -1,4 +1,4 @@
-# winstats: русский
+# Windows Stats: русский
 
 [module]
 cpu = "Процессор"
@@ -54,16 +54,6 @@ task_manager = "Диспетчер задач"
 open_config = "Открыть файл настроек"
 reload_config = "Перечитать настройки"
 about = "О программе"
-check_updates = "Проверить обновления"
-update_available = "Доступно обновление: {v}"
-remote = "Удалённые машины"
-discovery = "Искать агентов в сети"
-share = "Отдавать эту машину в сеть"
-discovery_off = "Включите поиск, чтобы найти агентов"
-no_agents = "Агенты пока не найдены"
-connect = "Подключить"
-connected = "Подключено"
-forget = "Забыть"
 exit = "Выход"
 na = "(нет данных)"
 small = "Мелкий"
@@ -98,9 +88,7 @@ load = "Загрузка"
 system = "Система"
 user = "Пользователь"
 idle = "Простой"
-load_avg = "Средняя нагрузка"
 clock = "Тактовая частота"
-offline = "не в сети"
 sockets = "Сокетов"
 p_cores = "P-ядра ({n})"
 e_cores = "E-ядра ({n})"
@@ -166,14 +154,3 @@ na = "н/д"
 [about]
 version = "Версия {v}"
 license = "Лицензия MIT"
-
-[update]
-title = "Обновление winstats"
-latest = "winstats {v} — последняя версия."
-available = "Доступна winstats {v} (у вас {cur}). Открыть страницу загрузки?"
-failed = "Не удалось проверить обновления: {err}"
-
-[remote]
-online = "в сети"
-offline = "не в сети"
-found = "найден"

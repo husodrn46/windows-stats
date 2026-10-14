@@ -68,11 +68,6 @@ pub fn windows_build() -> u32 {
     info.dwBuildNumber
 }
 
-/// Windows 8 is build 9200; anything older cannot host layered child windows.
-pub fn is_windows7() -> bool {
-    windows_build() < 9200
-}
-
 pub fn user32_proc(name: &str) -> Option<unsafe extern "system" fn() -> isize> {
     use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
     let module = unsafe { GetModuleHandleW(windows::core::w!("user32.dll")) }.ok()?;
@@ -115,35 +110,54 @@ pub fn system_light_theme() -> bool {
     ) == Some(1)
 }
 
-/// Windows 11: 1 = taskbar centered (default), 0 = left aligned.
-
+/// Settings and log live in the user's profile: %APPDATA%\WindowsStats. `WINDOWS_STATS_HOME`
+/// overrides it (tests run against a scratch directory and leave the real settings alone).
 pub fn config_dir() -> std::path::PathBuf {
+    if let Some(home) = std::env::var_os("WINDOWS_STATS_HOME") {
+        return std::path::PathBuf::from(home);
+    }
     let base = std::env::var_os("APPDATA")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::PathBuf::from("."));
-    base.join("winstats")
+    base.join("WindowsStats")
+}
+
+pub fn log_path() -> std::path::PathBuf {
+    config_dir().join("WindowsStats.log")
+}
+
+/// Keeps the log small: past 1 MB it moves to WindowsStats.log.old at start-up.
+pub fn rotate_log() {
+    let path = log_path();
+    if std::fs::metadata(&path).map(|m| m.len() > 1 << 20).unwrap_or(false) {
+        let _ = std::fs::rename(&path, path.with_extension("log.old"));
+    }
+}
+
+/// "2026-10-13 16:39:12" in local time.
+pub fn local_timestamp() -> String {
+    let t = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
+    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond)
 }
 
 pub fn log(msg: &str) {
     eprintln!("{msg}");
     let dir = config_dir();
     let _ = std::fs::create_dir_all(&dir);
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(dir.join("winstats.log"))
-    {
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        let _ = writeln!(f, "[{ts}] {msg}");
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log_path()) {
+        let _ = writeln!(f, "[{}] {msg}", local_timestamp());
     }
 }
 
 #[macro_export]
 macro_rules! log {
     ($($arg:tt)*) => { $crate::util::log(&format!($($arg)*)) };
+}
+
+/// `v` with `decimals` digits after the decimal separator of the UI language.
+pub fn format_decimal(v: f64, decimals: usize) -> String {
+    let s = format!("{v:.decimals$}");
+    if crate::i18n::decimal_comma() { s.replace('.', ",") } else { s }
 }
 
 pub fn format_bytes_rate(bps: f64) -> String {
@@ -181,7 +195,7 @@ pub fn format_duration(secs: u32) -> String {
 }
 
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
-const RUN_VALUE: &str = "winstats";
+const RUN_VALUE: &str = "WindowsStats";
 
 /// True when the HKCU Run entry points at this executable.
 pub fn autostart_enabled() -> bool {

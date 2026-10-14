@@ -1,4 +1,4 @@
-# winstats: українська
+# Windows Stats: українська
 
 [module]
 cpu = "Процесор"
@@ -54,16 +54,6 @@ task_manager = "Диспетчер завдань"
 open_config = "Відкрити файл налаштувань"
 reload_config = "Перечитати налаштування"
 about = "Про програму"
-check_updates = "Перевірити оновлення"
-update_available = "Доступне оновлення: {v}"
-remote = "Віддалені машини"
-discovery = "Шукати агентів у мережі"
-share = "Віддавати цю машину в мережу"
-discovery_off = "Увімкніть пошук, щоб знайти агентів"
-no_agents = "Агентів поки не знайдено"
-connect = "Підключити"
-connected = "Підключено"
-forget = "Забути"
 exit = "Вихід"
 na = "(немає даних)"
 small = "Дрібний"
@@ -98,9 +88,7 @@ load = "Навантаження"
 system = "Система"
 user = "Користувач"
 idle = "Простій"
-load_avg = "Середнє навантаження"
 clock = "Тактова частота"
-offline = "не в мережі"
 sockets = "Сокетів"
 p_cores = "P-ядра ({n})"
 e_cores = "E-ядра ({n})"
@@ -166,14 +154,3 @@ na = "н/д"
 [about]
 version = "Версія {v}"
 license = "Ліцензія MIT"
-
-[update]
-title = "Оновлення winstats"
-latest = "winstats {v} — остання версія."
-available = "Доступна winstats {v} (у вас {cur}). Відкрити сторінку завантаження?"
-failed = "Не вдалося перевірити оновлення: {err}"
-
-[remote]
-online = "в мережі"
-offline = "не в мережі"
-found = "знайдено"

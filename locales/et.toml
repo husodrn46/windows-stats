@@ -1,4 +1,4 @@
-# winstats: eesti
+# Windows Stats: eesti
 
 [module]
 cpu = "Protsessor"
@@ -53,17 +53,7 @@ start_with_windows = "Käivita koos Windowsiga"
 task_manager = "Tegumihaldur"
 open_config = "Ava seadistusfail"
 reload_config = "Laadi seadistus uuesti"
-about = "winstats teave"
-check_updates = "Otsi uuendusi"
-update_available = "Uuendus saadaval: {v}"
-remote = "Kaugmasinad"
-discovery = "Otsi agente võrgust"
-share = "Jaga seda masinat võrgus"
-discovery_off = "Lülita otsing sisse, et agente leida"
-no_agents = "Agente pole veel leitud"
-connect = "Ühenda"
-connected = "Ühendatud"
-forget = "Unusta"
+about = "Windows Stats teave"
 exit = "Välju"
 na = "(pole saadaval)"
 small = "Väike"
@@ -98,9 +88,7 @@ load = "Koormus"
 system = "Süsteem"
 user = "Kasutaja"
 idle = "Jõude"
-load_avg = "Keskmine koormus"
 clock = "Taktsagedus"
-offline = "võrguühenduseta"
 sockets = "Pesad"
 p_cores = "P-tuumad ({n})"
 e_cores = "E-tuumad ({n})"
@@ -166,14 +154,3 @@ na = "puudub"
 [about]
 version = "Versioon {v}"
 license = "MIT litsents"
-
-[update]
-title = "winstatsi uuendus"
-latest = "winstats {v} on uusim versioon."
-available = "Saadaval on winstats {v} (sul on {cur}). Kas avada allalaadimisleht?"
-failed = "Uuenduste otsimine ebaõnnestus: {err}"
-
-[remote]
-online = "võrgus"
-offline = "võrguühenduseta"
-found = "leitud"

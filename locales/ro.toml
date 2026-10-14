@@ -1,4 +1,4 @@
-# winstats: română
+# Windows Stats: română
 
 [module]
 cpu = "Procesor"
@@ -53,17 +53,7 @@ start_with_windows = "Pornește odată cu Windows"
 task_manager = "Manager de activități"
 open_config = "Deschide fișierul de configurare"
 reload_config = "Reîncarcă configurarea"
-about = "Despre winstats"
-check_updates = "Caută actualizări"
-update_available = "Actualizare disponibilă: {v}"
-remote = "Mașini la distanță"
-discovery = "Caută agenți în rețea"
-share = "Partajează această mașină în rețea"
-discovery_off = "Porniți căutarea pentru a găsi agenți"
-no_agents = "Niciun agent găsit încă"
-connect = "Conectează"
-connected = "Conectat"
-forget = "Uită"
+about = "Despre Windows Stats"
 exit = "Ieșire"
 na = "(indisponibil)"
 small = "Mic"
@@ -98,9 +88,7 @@ load = "Încărcare"
 system = "Sistem"
 user = "Utilizator"
 idle = "Inactiv"
-load_avg = "Încărcare medie"
 clock = "Frecvență"
-offline = "offline"
 sockets = "Socluri"
 p_cores = "Nuclee P ({n})"
 e_cores = "Nuclee E ({n})"
@@ -166,14 +154,3 @@ na = "n/a"
 [about]
 version = "Versiunea {v}"
 license = "Licența MIT"
-
-[update]
-title = "Actualizare winstats"
-latest = "winstats {v} este cea mai recentă versiune."
-available = "winstats {v} este disponibilă (aveți {cur}). Deschideți pagina de descărcare?"
-failed = "Nu s-au putut căuta actualizări: {err}"
-
-[remote]
-online = "online"
-offline = "offline"
-found = "găsit"

@@ -1,19 +1,22 @@
 [package]
-name = "winstats"
-version = "0.2.4"
+name = "windows-stats"
+version = "0.1.0"
 edition = "2021"
-rust-version = "1.77"
-description = "System resource widgets embedded in the Windows taskbar"
+rust-version = "1.85"
+description = "Windows Stats: system resource widgets for the Windows 10/11 taskbar (based on winstats)"
 license = "MIT"
-repository = "https://github.com/mgvs/winstats"
-authors = ["Oleksandr Zhabotynskyi <alexlp@mgvs.org>"]
+# Windows Stats is a fork of winstats by Oleksandr Zhabotynskyi (https://github.com/mgvs/winstats, MIT)
+authors = ["Windows Stats contributors", "Oleksandr Zhabotynskyi <alexlp@mgvs.org>"]
 build = "build.rs"
+publish = false
+
+[[bin]]
+name = "WindowsStats"
+path = "src/main.rs"
 
 [dependencies]
-serde = { version = "=1.0.210", features = ["derive"] }
-serde_json = "=1.0.128"
-toml = "=0.8.19"
-winstats-proto = { path = "crates/proto" }
+serde = { version = "1.0.229", features = ["derive"] }
+toml = "0.9"
 
 [dependencies.windows]
 version = "=0.58.0"
@@ -32,7 +35,6 @@ features = [
     "Win32_System_IO",
     "Win32_System_ProcessStatus",
     "Win32_Globalization",
-    "Win32_Networking_WinInet",
     "Win32_NetworkManagement_WiFi",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_System_LibraryLoader",
@@ -47,13 +49,14 @@ features = [
     "Wdk_System_SystemInformation",
     "Wdk_System_SystemServices",
     "Win32_System_Threading",
+    "Win32_System_Console",
     "Win32_System_Memory",
     "Win32_System_DataExchange",
     "Win32_Security",
 ]
 
 [build-dependencies]
-winresource = "=0.1.17"
+winresource = "0.1"
 
 [profile.release]
 opt-level = 2
@@ -61,6 +64,3 @@ lto = true
 codegen-units = 1
 strip = true
 panic = "abort"
-
-[workspace]
-members = ["crates/proto", "crates/agent"]

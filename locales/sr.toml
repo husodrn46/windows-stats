@@ -1,4 +1,4 @@
-# winstats: српски
+# Windows Stats: српски
 
 [module]
 cpu = "Процесор"
@@ -53,17 +53,7 @@ start_with_windows = "Покрени уз Windows"
 task_manager = "Менаџер задатака"
 open_config = "Отвори датотеку подешавања"
 reload_config = "Поново учитај подешавања"
-about = "О програму winstats"
-check_updates = "Провери ажурирања"
-update_available = "Доступно ажурирање: {v}"
-remote = "Удаљени рачунари"
-discovery = "Тражи агенте на мрежи"
-share = "Дели овај рачунар на мрежи"
-discovery_off = "Укључите претрагу да бисте нашли агенте"
-no_agents = "Агенти још нису пронађени"
-connect = "Повежи"
-connected = "Повезано"
-forget = "Заборави"
+about = "О програму Windows Stats"
 exit = "Излаз"
 na = "(није доступно)"
 small = "Мали"
@@ -98,9 +88,7 @@ load = "Оптерећење"
 system = "Систем"
 user = "Корисник"
 idle = "Мировање"
-load_avg = "Просечно оптерећење"
 clock = "Такт"
-offline = "ван мреже"
 sockets = "Подножја"
 p_cores = "P језгра ({n})"
 e_cores = "E језгра ({n})"
@@ -166,14 +154,3 @@ na = "н/д"
 [about]
 version = "Верзија {v}"
 license = "MIT лиценца"
-
-[update]
-title = "Ажурирање winstats"
-latest = "winstats {v} је најновија верзија."
-available = "Доступан је winstats {v} (имате {cur}). Отворити страницу за преузимање?"
-failed = "Провера ажурирања није успела: {err}"
-
-[remote]
-online = "на мрежи"
-offline = "ван мреже"
-found = "пронађен"

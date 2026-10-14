@@ -19,8 +19,7 @@ use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 pub const HISTORY: usize = 360;
 
 /// Everything the widgets and the popups read: current values, histories, hardware lists.
-/// Filled by the local collector (`Metrics`) or by a remote agent's snapshots; the drawing code
-/// does not know which.
+/// Filled by the collector thread (`Metrics`) and handed to the UI thread as a snapshot.
 #[derive(Default, Clone)]
 pub struct MetricsData {
     pub mem: mem::Mem,
@@ -89,16 +88,10 @@ pub struct MetricsData {
     pub gpu_available: bool,
     /// false on machines without a battery
     pub battery_available: bool,
-    /// remote machine's name; empty for the local machine
-    pub host: String,
-    /// remote machine not reachable right now (its last values stay)
-    pub offline: bool,
-    /// CPU package temperature where the source has one
+    /// CPU package temperature where a sensor source has one (None = not available)
     pub cpu_temp: Option<f32>,
     /// current clock per displayed core, MHz; empty when unknown
     pub cpu_freq: Vec<u32>,
-    /// 1, 5, 15 minute load averages (Unix agents)
-    pub load_avg: Vec<f32>,
 }
 
 impl MetricsData {
@@ -155,8 +148,8 @@ impl MetricsData {
     }
 }
 
-/// The local machine: Windows collectors plus the `MetricsData` they fill. Derefs to the data
-/// so drawing code takes `&MetricsData` and callers pass `&Metrics` unchanged.
+/// The Windows collectors plus the `MetricsData` they fill. Lives on the collector thread
+/// (see `collector.rs`); derefs to the data.
 pub struct Metrics {
     pub data: MetricsData,
     cpu: cpu::Cpu,
@@ -168,8 +161,8 @@ pub struct Metrics {
     /// Display order: hardware index of each displayed core (P-cores first, then E-cores).
     /// Windows numbers cores in die order, which interleaves P and E clusters on Arrow Lake.
     cpu_order: Vec<usize>,
-    /// read the per-disk counters every tick (sharing needs them), not only for the popup
-    pub want_per_disk: bool,
+    /// CPU load as Task Manager shows it (% Processor Utility); false = busy time only
+    pub cpu_utility: bool,
 }
 
 impl Deref for Metrics {
@@ -226,7 +219,7 @@ impl Metrics {
             procs: processes::Processes::new(cores, top_n),
             disk_letter: disk_letter.to_string(),
             cpu_order,
-            want_per_disk: false,
+            cpu_utility: true,
         }
     }
 
@@ -302,10 +295,29 @@ impl Metrics {
     pub fn update(&mut self, details: bool) {
         let d = &mut self.data;
         self.cpu.update();
-        d.cpu_cores = self.cpu_order.iter().map(|&i| self.cpu.cores.get(i).cloned().unwrap_or(0.0)).collect();
-        d.cpu_total = self.cpu.total;
-        d.cpu_system = self.cpu.system;
-        d.cpu_user = self.cpu.user;
+        // one PDH collection per tick feeds CPU utility, clocks, disk and GPU
+        if let Some(p) = self.pdh.as_mut() {
+            p.update();
+        }
+        let utility = if self.cpu_utility { self.pdh.as_ref().and_then(|p| p.cpu_utility()) } else { None };
+        match utility {
+            Some((total, per)) if per.len() >= self.cpu_order.len() => {
+                // Task Manager's figure; the system / user split of the busy time keeps its
+                // proportions and is scaled to that total
+                d.cpu_cores = self.cpu_order.iter().map(|&i| per.get(i).cloned().unwrap_or(0.0)).collect();
+                let busy = self.cpu.system + self.cpu.user;
+                let (sys, user) = if busy > 0.0 { (total * self.cpu.system / busy, total * self.cpu.user / busy) } else { (0.0, 0.0) };
+                d.cpu_total = total;
+                d.cpu_system = sys;
+                d.cpu_user = user;
+            }
+            _ => {
+                d.cpu_cores = self.cpu_order.iter().map(|&i| self.cpu.cores.get(i).cloned().unwrap_or(0.0)).collect();
+                d.cpu_total = self.cpu.total;
+                d.cpu_system = self.cpu.system;
+                d.cpu_user = self.cpu.user;
+            }
+        }
         push(&mut d.cpu_history, d.cpu_total);
 
         d.mem.update();
@@ -319,12 +331,11 @@ impl Metrics {
         d.net_ifaces = self.net.ifaces.clone();
         push(&mut d.net_history, (d.net_rx as f32, d.net_tx as f32));
 
-        if let Some(p) = self.pdh.as_mut() {
-            p.update();
+        if let Some(p) = self.pdh.as_ref() {
             d.gpu = p.gpu_pct;
             let raw = p.core_freqs();
             d.cpu_freq = if raw.len() >= self.cpu_order.len() { self.cpu_order.iter().map(|&i| raw.get(i).cloned().unwrap_or(0)).collect() } else { Vec::new() };
-            if self.want_per_disk || d.disks.iter().any(|disk| !disk.enabled) {
+            if d.disks.iter().any(|disk| !disk.enabled) {
                 // some disks are switched off: sum the per-disk counters instead of _Total
                 let (mut r, mut w) = (0.0, 0.0);
                 for (index, dr, dw) in p.per_disk() {

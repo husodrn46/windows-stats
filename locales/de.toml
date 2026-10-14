@@ -1,4 +1,4 @@
-# winstats: Deutsch
+# Windows Stats: Deutsch
 
 [module]
 cpu = "CPU"
@@ -53,17 +53,7 @@ start_with_windows = "Mit Windows starten"
 task_manager = "Task-Manager"
 open_config = "Konfigurationsdatei öffnen"
 reload_config = "Konfiguration neu laden"
-about = "Über winstats"
-check_updates = "Nach Updates suchen"
-update_available = "Update verfügbar: {v}"
-remote = "Entfernte Rechner"
-discovery = "Agenten im Netzwerk suchen"
-share = "Diesen Rechner im Netzwerk freigeben"
-discovery_off = "Suche einschalten, um Agenten zu finden"
-no_agents = "Noch keine Agenten gefunden"
-connect = "Verbinden"
-connected = "Verbunden"
-forget = "Vergessen"
+about = "Über Windows Stats"
 exit = "Beenden"
 na = "(nicht verfügbar)"
 small = "Klein"
@@ -98,9 +88,7 @@ load = "Auslastung"
 system = "System"
 user = "Benutzer"
 idle = "Leerlauf"
-load_avg = "Durchschnittslast"
 clock = "Takt"
-offline = "offline"
 sockets = "Sockel"
 p_cores = "P-Kerne ({n})"
 e_cores = "E-Kerne ({n})"
@@ -166,14 +154,3 @@ na = "n. v."
 [about]
 version = "Version {v}"
 license = "MIT-Lizenz"
-
-[update]
-title = "winstats-Update"
-latest = "winstats {v} ist die neueste Version."
-available = "winstats {v} ist verfügbar (installiert: {cur}). Download-Seite öffnen?"
-failed = "Update-Prüfung fehlgeschlagen: {err}"
-
-[remote]
-online = "online"
-offline = "offline"
-found = "gefunden"

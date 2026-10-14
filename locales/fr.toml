@@ -1,4 +1,4 @@
-# winstats : français
+# Windows Stats : français
 
 [module]
 cpu = "Processeur"
@@ -53,17 +53,7 @@ start_with_windows = "Lancer avec Windows"
 task_manager = "Gestionnaire des tâches"
 open_config = "Ouvrir le fichier de configuration"
 reload_config = "Recharger la configuration"
-about = "À propos de winstats"
-check_updates = "Rechercher des mises à jour"
-update_available = "Mise à jour disponible : {v}"
-remote = "Machines distantes"
-discovery = "Rechercher des agents sur le réseau"
-share = "Partager cette machine sur le réseau"
-discovery_off = "Activez la recherche pour trouver des agents"
-no_agents = "Aucun agent trouvé pour l'instant"
-connect = "Connecter"
-connected = "Connecté"
-forget = "Oublier"
+about = "À propos de Windows Stats"
 exit = "Quitter"
 na = "(indisponible)"
 small = "Petite"
@@ -98,9 +88,7 @@ load = "Charge"
 system = "Système"
 user = "Utilisateur"
 idle = "Inactif"
-load_avg = "Charge moyenne"
 clock = "Fréquence"
-offline = "hors ligne"
 sockets = "Sockets"
 p_cores = "Cœurs P ({n})"
 e_cores = "Cœurs E ({n})"
@@ -166,14 +154,3 @@ na = "n/d"
 [about]
 version = "Version {v}"
 license = "Licence MIT"
-
-[update]
-title = "Mise à jour de winstats"
-latest = "winstats {v} est la dernière version."
-available = "winstats {v} est disponible (vous avez {cur}). Ouvrir la page de téléchargement ?"
-failed = "Impossible de rechercher des mises à jour : {err}"
-
-[remote]
-online = "en ligne"
-offline = "hors ligne"
-found = "trouvé"

@@ -1,5 +1,6 @@
-//! Performance-counter based metrics: disk throughput and GPU utilisation
-//! (the same "GPU Engine" counters Task Manager reads).
+//! Performance-counter based metrics: disk throughput, GPU utilisation (the same "GPU Engine"
+//! counters Task Manager reads) and CPU utility (Task Manager's CPU figure on Windows 10/11:
+//! busy time scaled by the current clock, so turbo and power saving are accounted for).
 
 use crate::util::{pcwstr, wide};
 use std::collections::HashMap;
@@ -16,6 +17,9 @@ pub struct Pdh {
     /// "Processor Information(*)": current performance in % of the base clock, and the base clock
     cpu_perf: Option<isize>,
     cpu_base: Option<isize>,
+    /// "% Processor Utility", total and per logical processor
+    cpu_util_total: Option<isize>,
+    cpu_util_all: Option<isize>,
     pub disk_read_bps: f64,
     pub disk_write_bps: f64,
     /// None when GPU counters are unavailable (VMs, old drivers).
@@ -40,12 +44,14 @@ impl Pdh {
             let disk_write_all = add(r"\PhysicalDisk(*)\Disk Write Bytes/sec");
             let cpu_perf = add(r"\Processor Information(*)\% Processor Performance");
             let cpu_base = add(r"\Processor Information(*)\Processor Frequency");
+            let cpu_util_total = add(r"\Processor Information(_Total)\% Processor Utility");
+            let cpu_util_all = add(r"\Processor Information(*)\% Processor Utility");
             let gpu = add(r"\GPU Engine(*)\Utilization Percentage");
             if gpu.is_none() {
                 crate::log!("GPU Engine counters unavailable; gpu widget will show --");
             }
             let _ = PdhCollectQueryData(query);
-            Some(Self { query, disk_read, disk_write, gpu, disk_read_all, disk_write_all, cpu_perf, cpu_base, disk_read_bps: 0.0, disk_write_bps: 0.0, gpu_pct: None })
+            Some(Self { query, disk_read, disk_write, gpu, disk_read_all, disk_write_all, cpu_perf, cpu_base, cpu_util_total, cpu_util_all, disk_read_bps: 0.0, disk_write_bps: 0.0, gpu_pct: None })
         }
     }
 
@@ -117,6 +123,24 @@ impl Pdh {
                 (mhz * pf / 100.0).round().max(0.0) as u32
             })
             .collect()
+    }
+
+    /// Task Manager's CPU load: (total, per logical processor by OS index), 0..1 each, capped at
+    /// 100% like Task Manager does (utility can pass 100% while the clock is above base).
+    pub fn cpu_utility(&self) -> Option<(f32, Vec<f32>)> {
+        let total = Self::value(self.cpu_util_total?)?;
+        let index_of = |name: &str| -> Option<usize> {
+            let (g, i) = name.split_once(',')?;
+            Some(g.parse::<usize>().ok()? * 64 + i.parse::<usize>().ok()?)
+        };
+        let mut per: Vec<(usize, f64)> = self.cpu_util_all.map(Self::array).unwrap_or_default().into_iter().filter_map(|(n, v)| index_of(&n).map(|i| (i, v))).collect();
+        per.sort_by_key(|e| e.0);
+        let n = per.last().map(|e| e.0 + 1).unwrap_or(0);
+        let mut cores = vec![0f32; n];
+        for (i, v) in per {
+            cores[i] = (v / 100.0).clamp(0.0, 1.0) as f32;
+        }
+        Some(((total / 100.0).clamp(0.0, 1.0) as f32, cores))
     }
 
     fn value(counter: isize) -> Option<f64> {

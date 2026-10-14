@@ -117,8 +117,6 @@ pub struct Popup {
     /// index of the strip widget the popup belongs to: a click on it closes the popup, a click
     /// on another widget of the same module just hands the popup over
     widget: Option<usize>,
-    /// remote machine key the popup shows; None = local
-    pub source: Option<String>,
     pub visible: bool,
     pub hidden_at: Option<Instant>,
     anchor: RECT,
@@ -148,7 +146,7 @@ pub struct Popup {
 fn create_window(hinstance: HINSTANCE, class: &str, native: crate::backdrop::Mode, opacity: crate::backdrop::Opacity) -> Option<(HWND, crate::backdrop::Mode, crate::backdrop::Mode)> {
     use crate::backdrop::{Mode, apply, mode_for};
     let cls = wide(class);
-    let title = wide("winstats popup");
+    let title = wide("Windows Stats popup");
     let want = mode_for(native, opacity);
     let layered = if want == Mode::Layered { WS_EX_LAYERED } else { WINDOW_EX_STYLE(0) };
     // DWM gives a backdrop only to framed windows; the frame itself is cut away in WM_NCCALCSIZE
@@ -175,7 +173,7 @@ impl Popup {
     pub fn new(hinstance: HINSTANCE, class: &str, opacity: crate::backdrop::Opacity) -> Option<Self> {
         let (hwnd, backdrop, native) = create_window(hinstance, class, crate::backdrop::mode(), opacity)?;
         let shadow = unsafe {
-            let cls = wide("WinStatsShadow");
+            let cls = wide("WindowsStatsShadow");
             CreateWindowExW(
                 WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
                 pcwstr(&cls),
@@ -207,7 +205,6 @@ impl Popup {
             icons: Default::default(),
             kind: None,
             widget: None,
-            source: None,
             hover: None,
             pie: None,
             tips: Vec::new(),
@@ -230,11 +227,11 @@ impl Popup {
     }
 
     /// Called from the strip's click handler. `anchor` and `tray` are screen rects.
-    pub fn toggle(&mut self, kind: Kind, source: Option<String>, widget: usize, anchor: RECT, tray: RECT) -> bool {
+    pub fn toggle(&mut self, kind: Kind, widget: usize, anchor: RECT, tray: RECT) -> bool {
         let just_hidden = self.hidden_at.map(|t| t.elapsed().as_millis() < 300).unwrap_or(false);
         // "open" also covers the popup the click itself just deactivated (and so hid)
         let open = self.visible || (!self.visible && just_hidden);
-        let same = self.kind == Some(kind) && self.source == source;
+        let same = self.kind == Some(kind);
         if open && same && self.widget == Some(widget) {
             if self.visible {
                 self.hide("toggle");
@@ -253,7 +250,6 @@ impl Popup {
         }
         self.kind = Some(kind);
         self.widget = Some(widget);
-        self.source = source;
         self.anchor = anchor;
         self.tray = tray;
         self.visible = true;
@@ -292,12 +288,6 @@ impl Popup {
             return None;
         }
         Some((text, p))
-    }
-
-    /// The content changed shape (an interface came or went): let the next render pick a new
-    /// height instead of keeping the one from when the popup opened.
-    pub fn relayout(&mut self) {
-        self.locked_h = 0;
     }
 
     /// Pin / unpin a process row (a click on the row).
@@ -1094,27 +1084,6 @@ fn with_clock(value: String, mhz: Option<u32>) -> String {
     }
 }
 
-/// Popup title: "<host> · CPU" for a remote machine, "CPU" locally.
-fn head(m: &MetricsData, key: &str) -> String {
-    if m.host.is_empty() {
-        t(key)
-    } else {
-        format!("{} · {}", m.host, t(key))
-    }
-}
-
-/// Subtitle with the offline mark for a machine that stopped answering.
-fn sub(m: &MetricsData, s: &str) -> String {
-    if !m.offline {
-        return s.to_string();
-    }
-    if s.is_empty() {
-        t("popup.offline")
-    } else {
-        format!("{s} · {}", t("popup.offline"))
-    }
-}
-
 fn draw_cpu(ui: &mut Ui, m: &MetricsData) {
     let mut line = m.cpu_name.clone();
     if let Some(c) = m.cpu_temp {
@@ -1123,16 +1092,13 @@ fn draw_cpu(ui: &mut Ui, m: &MetricsData) {
         }
         line.push_str(&format!("{c:.0} \u{00B0}C"));
     }
-    ui.title(&head(m, "popup.cpu"), &sub(m, &line));
+    ui.title(&t("popup.cpu"), &line);
     let hist: Vec<f32> = m.cpu_history.iter().cloned().collect();
     ui.chart(&hist, 70.0, ui.t.accent);
     ui.row_colored(&t("popup.load"), &pct(m.cpu_total), ui.t.usage(m.cpu_total, ui.t.text));
     ui.row(&t("popup.system"), &pct(m.cpu_system));
     ui.row(&t("popup.user"), &pct(m.cpu_user));
     ui.row(&t("popup.idle"), &pct((1.0 - m.cpu_total).max(0.0)));
-    if m.load_avg.len() == 3 {
-        ui.row(&t("popup.load_avg"), &format!("{:.2} / {:.2} / {:.2}", m.load_avg[0], m.load_avg[1], m.load_avg[2]));
-    }
     if m.cpu_sockets > 1 {
         ui.row(&t("popup.sockets"), &m.cpu_sockets.to_string());
     }
@@ -1154,7 +1120,13 @@ fn draw_cpu(ui: &mut Ui, m: &MetricsData) {
     let breaks = m.cpu_breaks();
     ui.cores(&m.cpu_cores, &m.cpu_classes, &breaks, &m.cpu_smt, &m.cpu_ids);
     ui.section(&t("popup.top_processes"));
-    ui.processes(&m.top_cpu, ProcMode::Cpu, m.top_n, m.host.is_empty());
+    ui.processes(&m.top_cpu, ProcMode::Cpu, m.top_n, true);
+}
+
+/// Filler text firmware puts into empty SMBIOS strings.
+fn smbios_placeholder(s: &str) -> bool {
+    let l = s.to_ascii_lowercase();
+    l.is_empty() || l == "unknown" || l == "not specified" || l == "undefined" || l == "none" || l.starts_with("0000") || l.contains("manufacturer") || l == "n/a"
 }
 
 fn draw_mem(ui: &mut Ui, m: &MetricsData) {
@@ -1166,7 +1138,7 @@ fn draw_mem(ui: &mut Ui, m: &MetricsData) {
     if let Some(n) = m.mem_channels {
         line.push_str(&format!(" · {}", tf("popup.channels", &[("n", &n.to_string())])));
     }
-    ui.title(&head(m, "popup.memory"), &sub(m, &line));
+    ui.title(&t("popup.memory"), &line);
     let hist: Vec<f32> = m.mem_history.iter().cloned().collect();
     ui.chart(&hist, 70.0, ui.t.accent);
     ui.row_colored(&t("popup.usage"), &pct(m.mem.pct), ui.t.usage(m.mem.pct, ui.t.text));
@@ -1189,12 +1161,33 @@ fn draw_mem(ui: &mut Ui, m: &MetricsData) {
         ]);
         ui.row(&t("popup.file_cache"), &format_bytes(m.mem_cache));
     }
+    if !m.mem_modules.is_empty() {
+        // installed modules from SMBIOS: slot, size, type and speed, then maker and part number
+        ui.section(&t("popup.memory_modules"));
+        for md in &m.mem_modules {
+            let slot = if md.slot.trim().is_empty() { md.bank.trim().to_string() } else { md.slot.trim().to_string() };
+            let mut desc = vec![format_bytes(md.size)];
+            if !md.mem_type.is_empty() {
+                desc.push(md.mem_type.to_string());
+            }
+            let speed = if md.configured_speed > 0 { md.configured_speed } else { md.speed };
+            if speed > 0 {
+                desc.push(format!("{speed} MT/s"));
+            }
+            ui.row(&slot, &desc.join(" \u{00B7} "));
+            let maker: Vec<&str> = [md.manufacturer.trim(), md.part.trim()].into_iter().filter(|s| !smbios_placeholder(s)).collect();
+            if !maker.is_empty() {
+                let dim = ui.t.dim;
+                ui.info_row(&[(maker.join(" "), None)], "", dim);
+            }
+        }
+    }
     ui.section(&t("popup.top_processes"));
-    ui.processes(&m.top_mem, ProcMode::Mem, m.top_n, m.host.is_empty());
+    ui.processes(&m.top_mem, ProcMode::Mem, m.top_n, true);
 }
 
 fn draw_gpu(ui: &mut Ui, m: &MetricsData) {
-    ui.title(&head(m, "popup.gpu"), &sub(m, &m.gpu_name));
+    ui.title(&t("popup.gpu"), &m.gpu_name);
     let hist: Vec<f32> = m.gpu_history.iter().cloned().collect();
     ui.chart(&hist, 70.0, ui.t.accent);
     match m.gpu {
@@ -1231,7 +1224,7 @@ fn draw_net(ui: &mut Ui, m: &MetricsData) {
     let line = if m.net_ip.is_empty() { m.net_iface.clone() } else { format!("{} · {}", m.net_iface, m.net_ip) };
     // link speed of the interface in the title, on the right
     let speed = m.net_ifaces.iter().find(|i| i.alias == m.net_iface).map(|i| i.speed).filter(|s| *s > 0).map(link_speed).unwrap_or_default();
-    ui.title_r(&head(m, "popup.network"), &sub(m, &line), &speed);
+    ui.title_r(&t("popup.network"), &line, &speed);
     // the Download / Upload rows switch their series in the chart on and off
     let (show_rx, show_tx) = (ui.t.net_rx, ui.t.net_tx);
     let rx: Vec<f32> = if show_rx { m.net_history.iter().map(|v| v.0).collect() } else { Vec::new() };
@@ -1294,7 +1287,7 @@ fn draw_disk(ui: &mut Ui, m: &MetricsData) {
         1 => m.disks[0].model.clone(),
         n => tf("popup.physical_disks_n", &[("n", &n.to_string())]),
     };
-    ui.title(&head(m, "popup.disk"), &sub(m, &line));
+    ui.title(&t("popup.disk"), &line);
     let r: Vec<f32> = m.disk_history.iter().map(|v| v.0).collect();
     let w: Vec<f32> = m.disk_history.iter().map(|v| v.1).collect();
     let max = ui.chart2(&r, &w, 70.0, READ, WRITE, 1024.0 * 1024.0);
@@ -1324,7 +1317,7 @@ fn draw_disk(ui: &mut Ui, m: &MetricsData) {
         }
     }
     ui.section(&t("popup.top_processes"));
-    ui.processes(&m.top_io, ProcMode::Io, m.top_n, m.host.is_empty());
+    ui.processes(&m.top_io, ProcMode::Io, m.top_n, true);
     ui.section(&t("popup.drives"));
     for d in &m.drives {
         let used = d.total.saturating_sub(d.free);

@@ -64,8 +64,9 @@ fn flatten(prefix: &str, v: &toml::Value, out: &mut HashMap<String, String>) {
 fn parse(code: &str) -> HashMap<String, String> {
     let mut out = HashMap::new();
     if let Some((_, _, text)) = LOCALES.iter().find(|(c, _, _)| *c == code) {
-        match text.parse::<toml::Value>() {
-            Ok(v) => flatten("", &v, &mut out),
+        // a whole document is a table (toml 0.9 parses `Value` as a single value expression)
+        match text.parse::<toml::Table>() {
+            Ok(t) => flatten("", &toml::Value::Table(t), &mut out),
             Err(e) => crate::log!("locale {code}: parse error: {e}"),
         }
     }
@@ -129,6 +130,17 @@ pub fn set_language(code: &str) {
     CURRENT.with(|c| *c.borrow_mut() = code.to_string());
 }
 
+/// Code of the active locale ("tr", "en", ...).
+pub fn current() -> String {
+    CURRENT.with(|c| c.borrow().clone())
+}
+
+/// True when the active language writes decimals with a comma ("0,5" in Turkish, German,
+/// French...), false for a point (English, Japanese, Chinese).
+pub fn decimal_comma() -> bool {
+    !matches!(current().as_str(), "en" | "en-GB" | "ja" | "zh" | "zh-Hant")
+}
+
 /// Translated string for `key`, English if the locale lacks it, the key itself if nobody has it.
 pub fn t(key: &str) -> String {
     if let Some(s) = TABLE.with(|t| t.borrow().get(key).cloned()) {
@@ -153,17 +165,22 @@ pub fn tf(key: &str, args: &[(&str, &str)]) -> String {
 mod tests {
     use super::*;
 
-    /// Every embedded locale parses and carries exactly the English key set with the same
-    /// placeholders.
+    /// Every embedded locale parses. English and Turkish carry every key; the other locales
+    /// (inherited from winstats) may lag behind for new strings, which fall back to English,
+    /// but carry no key English lacks and keep the same placeholders.
     #[test]
     fn locales_are_complete() {
         let en = parse("en");
         assert!(!en.is_empty());
         for (code, _, text) in LOCALES {
-            text.parse::<toml::Value>().unwrap_or_else(|e| panic!("{code}: {e}"));
+            text.parse::<toml::Table>().unwrap_or_else(|e| panic!("{code}: {e}"));
             let table = parse(code);
+            let full = matches!(*code, "en" | "tr");
             for (key, value) in &en {
-                let other = table.get(key).unwrap_or_else(|| panic!("{code}: missing {key}"));
+                let Some(other) = table.get(key) else {
+                    assert!(!full, "{code}: missing {key}");
+                    continue;
+                };
                 for ph in value.split('{').skip(1).filter_map(|s| s.split('}').next()) {
                     assert!(other.contains(&format!("{{{ph}}}")), "{code}: {key} lacks {{{ph}}}");
                 }

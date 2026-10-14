@@ -5,16 +5,16 @@ use crate::util::{pcwstr, wide};
 use crate::widgets::Theme;
 use windows::Win32::Foundation::{HINSTANCE, HWND, RECT};
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromWindow};
-use windows::Win32::System::SystemInformation::GetLocalTime;
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::PCWSTR;
 
-pub const NAME: &str = "winstats";
+pub const NAME: &str = "Windows Stats";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const AUTHOR: &str = "Oleksandr Zhabotynskyi";
-pub const REPO_URL: &str = "https://github.com/mgvs/winstats";
-pub const LICENSE_URL: &str = "https://github.com/mgvs/winstats/blob/main/LICENSE";
+/// Windows Stats is built on winstats; its author and licence are credited in the window.
+pub const UPSTREAM_AUTHOR: &str = "Oleksandr Zhabotynskyi";
+pub const UPSTREAM_URL: &str = "https://github.com/mgvs/winstats";
+pub const UPSTREAM_LICENSE_URL: &str = "https://github.com/mgvs/winstats/blob/main/LICENSE";
 
 const W_DIP: f32 = 320.0;
 const H_DIP: f32 = 250.0;
@@ -23,14 +23,14 @@ pub struct About {
     pub hwnd: HWND,
     canvas: Canvas,
     pub visible: bool,
-    /// clickable areas in window coords: (rect, url); an empty url is the close button
-    links: Vec<(RECT, &'static str)>,
+    /// clickable areas in window coords: (rect, url or file); an empty one is the close button
+    links: Vec<(RECT, String)>,
 }
 
 impl About {
     pub fn new(hinstance: HINSTANCE, class: &str) -> Option<Self> {
         let cls = wide(class);
-        let title = wide("About winstats");
+        let title = wide("About Windows Stats");
         let hwnd = unsafe {
             CreateWindowExW(
                 WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
@@ -67,8 +67,8 @@ impl About {
 
     /// Click at window coords: open a link or close.
     pub fn click(&mut self, x: i32, y: i32) {
-        let hit = self.links.iter().find(|(r, _)| x >= r.left && x < r.right && y >= r.top && y < r.bottom).map(|(_, u)| *u);
-        match hit {
+        let hit = self.links.iter().find(|(r, _)| x >= r.left && x < r.right && y >= r.top && y < r.bottom).map(|(_, u)| u.clone());
+        match hit.as_deref() {
             Some("") => self.hide(),
             Some(url) => {
                 let verb = wide("open");
@@ -99,7 +99,7 @@ impl About {
         let cx = w - t.s(14.0) - cw;
         let cy = t.s(10.0);
         self.canvas.draw_text("\u{2715}", cx, cy, cf, t.dim);
-        self.links.push((RECT { left: cx - t.s(8.0), top: cy - t.s(8.0), right: cx + cw + t.s(8.0), bottom: cy + ch + t.s(8.0) }, ""));
+        self.links.push((RECT { left: cx - t.s(8.0), top: cy - t.s(8.0), right: cx + cw + t.s(8.0), bottom: cy + ch + t.s(8.0) }, String::new()));
 
         // logo: rounded square in the accent colour with white core bars
         let logo = t.s(64.0);
@@ -135,14 +135,18 @@ impl About {
         y += t.s(6.0);
         centred(&mut self.canvas, &crate::i18n::tf("about.version", &[("v", VERSION)]), FontSpec { px: t.s(11.0), weight: FW_NORMAL }, t.text, &mut y);
         y += t.s(4.0);
-        centred(&mut self.canvas, &format!("\u{00A9} {AUTHOR} {}", year()), FontSpec { px: t.s(11.0), weight: FW_NORMAL }, t.dim, &mut y);
+        let small = FontSpec { px: t.s(11.0), weight: FW_NORMAL };
+        centred(&mut self.canvas, &crate::i18n::tf("about.based_on", &[("author", UPSTREAM_AUTHOR)]), small, t.dim, &mut y);
         y += t.s(14.0);
         let lf = FontSpec { px: t.s(11.0), weight: FW_NORMAL };
         let rc = centred(&mut self.canvas, "github.com/mgvs/winstats", lf, t.accent, &mut y);
-        self.links.push((pad_rect(rc, t.s(6.0)), REPO_URL));
+        self.links.push((pad_rect(rc, t.s(6.0)), UPSTREAM_URL.to_string()));
         y += t.s(4.0);
+        // the licence texts ship next to the executable; the upstream page when they do not
+        let local = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join("LICENSE.txt"))).filter(|p| p.exists());
+        let target = local.map(|p| p.display().to_string()).unwrap_or_else(|| UPSTREAM_LICENSE_URL.to_string());
         let rc = centred(&mut self.canvas, &crate::i18n::t("about.license"), lf, t.accent, &mut y);
-        self.links.push((pad_rect(rc, t.s(6.0)), LICENSE_URL));
+        self.links.push((pad_rect(rc, t.s(6.0)), target));
 
         // centre on the primary monitor
         let mut mi = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
@@ -166,8 +170,4 @@ impl About {
 
 fn pad_rect(r: RECT, p: i32) -> RECT {
     RECT { left: r.left - p, top: r.top - p, right: r.right + p, bottom: r.bottom + p }
-}
-
-fn year() -> u16 {
-    unsafe { GetLocalTime().wYear }
 }

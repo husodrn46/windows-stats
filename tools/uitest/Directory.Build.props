@@ -1,0 +1,6 @@
+<Project>
+  <!-- keep build output out of the source tree (target is ignored by git) -->
+  <PropertyGroup>
+    <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)..\..\target\uitest\obj\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+</Project>

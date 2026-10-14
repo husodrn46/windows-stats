@@ -1,6 +1,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+//! Windows Stats: system resource widgets in the Windows taskbar, in the style of macOS Stats.
+//! Based on winstats by Oleksandr Zhabotynskyi (MIT).
+//!
+//! Threads: the UI thread owns every window (the strip inside the taskbar, the popups, the
+//! menu) and only draws; the collector thread (`collector.rs`) does all measuring; the ping
+//! thread probes latency only when the user configured a host and the network popup is open.
 
 mod canvas;
+mod cli;
+mod collector;
 mod config;
 mod i18n;
 mod menu;
@@ -9,36 +17,39 @@ mod about;
 mod backdrop;
 mod popup;
 mod procicon;
-mod remote;
-mod share;
 mod taskbar;
-mod update;
 mod util;
 mod widgets;
 
-use canvas::{BLACK, Canvas, Color, WHITE};
-use config::Config;
-use metrics::Metrics;
-use std::cell::RefCell;
 use about::About;
+use canvas::{Canvas, Color, WHITE};
+use collector::{Cmd, Collector};
+use config::Config;
+use i18n::t;
+use metrics::MetricsData;
 use popup::Popup;
+use std::cell::RefCell;
 use taskbar::Taskbar;
 use util::{pcwstr, wide};
-use i18n::t;
 use widgets::{ColorMode, Kind, Theme, Widget};
 use windows::Win32::Foundation::*;
+use windows::Win32::Graphics::Gdi::{BeginPaint, EndPaint, GetMonitorInfoW, MonitorFromWindow, ScreenToClient, MONITORINFO, MONITOR_DEFAULTTONEAREST, PAINTSTRUCT};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT};
-/// lives in the UI.Controls feature of the windows crate, which is not enabled
-const WM_MOUSELEAVE: u32 = 0x02A3;
-use windows::Win32::Graphics::Gdi::{BeginPaint, EndPaint, GetMonitorInfoW, MonitorFromWindow, ScreenToClient, MONITORINFO, MONITOR_DEFAULTTONEAREST, PAINTSTRUCT};
-use windows::Win32::UI::Shell::{SHQueryUserNotificationState, QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN};
 use windows::Win32::UI::Shell::ShellExecuteW;
+use windows::Win32::UI::Shell::{SHQueryUserNotificationState, QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN};
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::PCWSTR;
 
-const TIMER_ID: usize = 1;
+/// lives in the UI.Controls feature of the windows crate
+const WM_MOUSELEAVE: u32 = 0x02A3;
+/// WM_POWERBROADCAST events
+const PBT_APMSUSPEND: usize = 0x0004;
+const PBT_APMRESUMESUSPEND: usize = 0x0007;
+const PBT_APMRESUMEAUTOMATIC: usize = 0x0012;
+const WM_DWMCOLORIZATIONCOLORCHANGED: u32 = 0x0320;
+
 /// floating mode: re-assert the strip above the taskbar (Explorer raises the taskbar over other
 /// topmost windows whenever it is activated, e.g. when the Start menu opens)
 const TIMER_ZORDER: usize = 2;
@@ -46,25 +57,34 @@ const TIMER_ZORDER: usize = 2;
 /// Explorer raises the taskbar a few milliseconds *after* the events it emits
 const TIMER_ZBURST: usize = 3;
 const ZBURST_TICKS: u32 = 14;
-/// one-shot: quiet update check a while after start
-const TIMER_UPDATE: usize = 4;
+/// no sample arrived for a while (collector stuck or suspended): the strip still gets
+/// re-attached after an Explorer restart
+const TIMER_WATCH: usize = 5;
+const WATCH_MS: u32 = 5000;
+
 const MENU_EXIT: usize = 1;
 const MENU_CONFIG: usize = 2;
 const MENU_RELOAD: usize = 3;
 const MENU_TASKMGR: usize = 4;
 const MENU_ABOUT: usize = 5;
-const MENU_CHECK_UPDATE: usize = 6;
-const MENU_GET_UPDATE: usize = 7;
+
+/// Class names of our windows (also checked by the full-screen detection).
+const CLASS_HIDDEN: &str = "WindowsStatsHidden";
+const CLASS_BAR: &str = "WindowsStatsBar";
+const CLASS_POPUP: &str = "WindowsStatsPopup";
+const CLASS_SHADOW: &str = "WindowsStatsShadow";
+const CLASS_ABOUT: &str = "WindowsStatsAbout";
 
 struct App {
     cfg: Config,
     hidden: HWND,
     bar: HWND,
     taskbar: Option<Taskbar>,
-    metrics: Metrics,
+    collector: Option<Collector>,
+    /// the newest snapshot from the collector
+    metrics: MetricsData,
     canvas: Canvas,
     widgets: Vec<Box<dyn Widget>>,
-    /// (widget index, kind, x0, x1) of each visible widget in bar client coords, for hit-testing
     /// placed widgets: (index, kind, main-axis start, main-axis end, cross-axis start,
     /// cross-axis end) in bar coords; the main axis runs along the strip (y on a vertical taskbar)
     layout: Vec<(usize, Kind, i32, i32, i32, i32)>,
@@ -76,67 +96,18 @@ struct App {
     zburst: u32,
     popup: Popup,
     about: About,
-    /// newer release found by the update check, shown in the menu
-    update_available: Option<String>,
-    remotes: remote::Remotes,
-    /// ICMP probe for the latency rows of the network popup
+    /// ICMP probe for the latency rows of the network popup (only with a configured host)
     ping: metrics::ping::Ping,
-    /// this machine served to other winstats (Remote > Share this machine)
-    share: Option<share::Share>,
-    /// agents listed in the last Remote submenu, in id order
-    menu_remote: Vec<RemoteEntry>,
+    /// what the collector was last told about the popup (detail collection on / off)
+    details: bool,
     /// last logged layout (widget kinds and widths), to log only changes
     layout_sig: String,
     /// floating mode: the strip is hidden while a full-screen game or presentation runs
     fullscreen_hidden: bool,
     wm_taskbar_created: u32,
     ticks: u64,
-}
-
-/// One line of the Remote submenu: a configured machine, or one only heard on the network.
-#[derive(Clone, Debug)]
-struct RemoteEntry {
-    /// config key when configured
-    key: Option<String>,
-    id: String,
-    name: String,
-    os: String,
-    arch: String,
-    address: String,
-    enabled: bool,
-    /// "online", "offline (...)", or "found" for an unconfigured one
-    state: String,
-    /// cpu / mem from the beacon, when heard
-    load: Option<(f32, f32)>,
-    /// modules the agent reports
-    has: Vec<String>,
-    /// cores of two classes (P / E): grouping applies
-    hybrid: bool,
-    /// the core chart has dividers (P / E, clusters or sockets): the splitter option applies
-    splittable: bool,
-}
-
-fn remote_keys(cfg: &Config) -> Vec<String> {
-    cfg.remotes.keys().cloned().collect()
-}
-
-/// Theme for a remote machine's widgets: its own colour modes and its label.
-fn remote_theme(cfg: &Config, base: &Theme, key: &str) -> Theme {
-    let mut t = base.clone();
-    if let Some(rc) = cfg.remotes.get(key) {
-        for (i, k) in widgets::MODULES.iter().enumerate() {
-            t.modes[i] = match rc.colors.get(module_key(*k)) {
-                Some(v) => ColorMode::parse(v),
-                None => ColorMode::Accent,
-            };
-        }
-        t.label = Some(if rc.label.is_empty() { key.to_string() } else { rc.label.clone() });
-        t.labels = rc.labels;
-        t.split_pe = rc.split_pe;
-    } else {
-        t.label = Some(key.to_string());
-    }
-    t
+    /// when the last sample arrived, for the watchdog timer
+    last_data: std::time::Instant,
 }
 
 /// A full-screen Direct3D game or a presentation is in front: the shell says so, or the
@@ -155,7 +126,7 @@ fn fullscreen_active(own: HWND) -> bool {
         let mut cls = [0u16; 64];
         let n = GetClassNameW(fg, &mut cls) as usize;
         let cls = String::from_utf16_lossy(&cls[..n]);
-        if matches!(cls.as_str(), "Progman" | "WorkerW" | "Shell_TrayWnd" | "WinStatsPopup" | "WinStatsAbout") {
+        if matches!(cls.as_str(), "Progman" | "WorkerW" | "Shell_TrayWnd") || cls == CLASS_POPUP || cls == CLASS_ABOUT {
             return false;
         }
         let mut rc = RECT::default();
@@ -170,18 +141,6 @@ fn fullscreen_active(own: HWND) -> bool {
         let m = mi.rcMonitor;
         rc.left <= m.left && rc.top <= m.top && rc.right >= m.right && rc.bottom >= m.bottom
     }
-}
-
-/// The machine's theme, or all grey when it has stopped answering.
-fn agent_theme(cfg: &Config, base: &Theme, key: &str, stale: bool) -> Theme {
-    let mut t = remote_theme(cfg, base, key);
-    if stale {
-        let grey = base.dim.alpha(0.6);
-        t.modes = [ColorMode::Fixed(grey); 6];
-        t.accent = grey;
-        t.text = grey;
-    }
-    t
 }
 
 /// A widget being dragged along the strip.
@@ -206,23 +165,23 @@ fn with_app<R>(f: impl FnOnce(&mut App) -> R) -> Option<R> {
 }
 
 fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if cli::run(&args) {
+        return;
+    }
+    util::rotate_log();
     let first_run = !Config::path().exists();
     let mut cfg = Config::load();
-    let keys = remote_keys(&cfg);
-    widgets::normalize(&mut cfg.widgets, &keys);
+    widgets::normalize(&mut cfg.widgets);
     i18n::set_language(&cfg.language);
-    let floating = match cfg.mode.as_str() {
-        "floating" => true,
-        "embedded" => false,
-        _ => util::is_windows7(),
-    };
+    let floating = cfg.mode == "floating";
     unsafe {
         // per-monitor DPI where Windows offers it (10 1607+), system DPI awareness otherwise
-        if floating || !util::set_per_monitor_dpi() {
+        if !util::set_per_monitor_dpi() {
             let _ = SetProcessDPIAware();
         }
         // single instance
-        let name = wide("Local\\winstats-single-instance");
+        let name = wide("Local\\WindowsStats-single-instance");
         let _mutex = CreateMutexW(None, false, pcwstr(&name));
         if GetLastError() == ERROR_ALREADY_EXISTS {
             log!("already running");
@@ -233,31 +192,18 @@ fn main() {
     let hinstance: HINSTANCE = unsafe { GetModuleHandleW(None).expect("module handle").into() };
 
     unsafe {
-        register_class(hinstance, "WinStatsHidden", Some(hidden_wndproc));
-        register_class(hinstance, "WinStatsBar", Some(bar_wndproc));
-        register_class(hinstance, "WinStatsPopup", Some(popup_wndproc));
-        register_class(hinstance, "WinStatsShadow", Some(shadow_wndproc));
-        register_class(hinstance, "WinStatsAbout", Some(about_wndproc));
+        register_class(hinstance, CLASS_HIDDEN, Some(hidden_wndproc));
+        register_class(hinstance, CLASS_BAR, Some(bar_wndproc));
+        register_class(hinstance, CLASS_POPUP, Some(popup_wndproc));
+        register_class(hinstance, CLASS_SHADOW, Some(shadow_wndproc));
+        register_class(hinstance, CLASS_ABOUT, Some(about_wndproc));
     }
 
+    // a top-level (not message-only) window: it has to receive the TaskbarCreated broadcast
     let hidden = unsafe {
-        let cls = wide("WinStatsHidden");
-        let title = wide("winstats");
-        CreateWindowExW(
-            WS_EX_TOOLWINDOW,
-            pcwstr(&cls),
-            pcwstr(&title),
-            WS_OVERLAPPED,
-            0,
-            0,
-            0,
-            0,
-            None,
-            None,
-            hinstance,
-            None,
-        )
-        .expect("hidden window")
+        let cls = wide(CLASS_HIDDEN);
+        let title = wide("Windows Stats");
+        CreateWindowExW(WS_EX_TOOLWINDOW, pcwstr(&cls), pcwstr(&title), WS_OVERLAPPED, 0, 0, 0, 0, None, None, hinstance, None).expect("hidden window")
     };
     metrics::net::watch(hidden);
 
@@ -269,8 +215,8 @@ fn main() {
         m
     };
 
-    let mut metrics = Metrics::new(&cfg.disk, cfg.top_processes as usize, &cfg.net_disabled, &cfg.disks_disabled);
-    metrics.set_group_pe(cfg.group_pe_cores);
+    let (collector, first) = Collector::start(hidden, collector::Settings::from_config(&cfg));
+    let metrics = first.unwrap_or_default();
     if first_run {
         // do not start with widgets this machine cannot feed
         let before = cfg.widgets.len();
@@ -285,14 +231,15 @@ fn main() {
         }
     }
     let widgets = widgets::build(&cfg.widgets);
-    let popup = Popup::new(hinstance, "WinStatsPopup", backdrop::Opacity::from_config(&cfg.popup_opacity)).expect("popup window");
-    let about = About::new(hinstance, "WinStatsAbout").expect("about window");
+    let popup = Popup::new(hinstance, CLASS_POPUP, backdrop::Opacity::from_config(&cfg.popup_opacity)).expect("popup window");
+    let about = About::new(hinstance, CLASS_ABOUT).expect("about window");
     APP.with(|a| {
         *a.borrow_mut() = Some(App {
             cfg: cfg.clone(),
             hidden,
             bar: HWND::default(),
             taskbar: None,
+            collector: Some(collector),
             metrics,
             canvas: Canvas::new(),
             widgets,
@@ -302,28 +249,27 @@ fn main() {
             zburst: 0,
             popup,
             about,
-            update_available: None,
-            remotes: remote::Remotes::new(),
             ping: metrics::ping::Ping::new(&cfg.ping_host),
-            share: None,
-            menu_remote: Vec::new(),
+            details: false,
             layout_sig: String::new(),
             fullscreen_hidden: false,
             wm_taskbar_created,
             ticks: 0,
+            last_data: std::time::Instant::now(),
         })
     });
 
-    log!("winstats started (build {}, win11={}, floating={})", util::windows_build(), util::is_windows11(), floating);
-    with_app(|app| {
-        let on = app.cfg.discovery;
-        app.remotes.set_discovery(on);
-        app.apply_share();
-        app.tick();
-    });
+    log!(
+        "Windows Stats {} started (Windows build {}, win11={}, floating={}, language={})",
+        about::VERSION,
+        util::windows_build(),
+        util::is_windows11(),
+        floating,
+        i18n::current()
+    );
+    with_app(|app| app.tick());
     unsafe {
-        SetTimer(hidden, TIMER_ID, cfg.update_ms.max(250), None);
-        SetTimer(hidden, TIMER_UPDATE, 20_000, None);
+        SetTimer(hidden, TIMER_WATCH, WATCH_MS, None);
         if floating {
             SetTimer(hidden, TIMER_ZORDER, 150, None);
             // react immediately when the taskbar is raised (foreground change or any top-level
@@ -345,6 +291,7 @@ fn main() {
             app.shutdown();
         }
     });
+    log!("Windows Stats stopped");
 }
 
 unsafe fn register_class(hinstance: HINSTANCE, name: &str, proc: WNDPROC) {
@@ -364,18 +311,22 @@ unsafe fn register_class(hinstance: HINSTANCE, name: &str, proc: WNDPROC) {
 }
 
 impl App {
+    fn send(&self, cmd: Cmd) {
+        if let Some(c) = &self.collector {
+            c.send(cmd);
+        }
+    }
+
+    /// The collector follows the settings that change what it measures.
+    fn reconfigure(&self) {
+        self.send(Cmd::Configure(collector::Settings::from_config(&self.cfg)));
+    }
+
     fn ensure_bar(&mut self) -> bool {
         if self.taskbar.as_ref().map(|t| t.alive()).unwrap_or(false) == false {
             self.taskbar = taskbar::find(self.floating);
             match &self.taskbar {
-                Some(t) => log!(
-                    "taskbar found: tray={:?} notify={:?} rebar={:?} client={:?} dpi={}",
-                    t.tray,
-                    t.notify,
-                    t.rebar,
-                    t.client(),
-                    t.dpi()
-                ),
+                Some(t) => log!("taskbar found: tray={:?} notify={:?} rebar={:?} client={:?} dpi={}", t.tray, t.notify, t.rebar, t.client(), t.dpi()),
                 None => {
                     return false;
                 }
@@ -392,11 +343,11 @@ impl App {
             }
             self.canvas = Canvas::new();
             let hinstance: HINSTANCE = unsafe { GetModuleHandleW(None).unwrap().into() };
-            let cls = wide("WinStatsBar");
-            let title = wide("winstats bar");
+            let cls = wide(CLASS_BAR);
+            let title = wide("Windows Stats bar");
             let bar = unsafe {
                 CreateWindowExW(
-                    WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+                    WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOPARENTNOTIFY,
                     pcwstr(&cls),
                     pcwstr(&title),
                     WS_POPUP,
@@ -433,18 +384,26 @@ impl App {
     }
 
     fn theme(&self) -> Theme {
-        let tb = self.taskbar.as_ref().unwrap();
         let light = self.is_light();
-        let scale = tb.dpi() as f32 / 96.0;
-        // widget row: the taskbar's thickness; a vertical taskbar is wide (it shows labels), so
-        // there the row is 48 DIP like an ordinary taskbar
-        let h = if tb.vertical() { tb.thickness().min((48.0 * scale).round() as i32) } else { tb.thickness() };
+        let (scale, h, vertical) = match self.taskbar.as_ref() {
+            Some(tb) => {
+                let scale = tb.dpi() as f32 / 96.0;
+                // widget row: the taskbar's thickness; a vertical taskbar is wide (it shows
+                // labels), so there the row is 48 DIP like an ordinary taskbar
+                let h = if tb.vertical() { tb.thickness().min((48.0 * scale).round() as i32) } else { tb.thickness() };
+                (scale, h, tb.vertical())
+            }
+            None => {
+                let scale = util::dpi_for_window(self.hidden).unwrap_or(96) as f32 / 96.0;
+                (scale, (48.0 * scale).round() as i32, false)
+            }
+        };
+        let _ = vertical;
         let (text, dim) = if light {
             (Color::rgb(0x1B, 0x1B, 0x1B), Color::rgba(0x1B, 0x1B, 0x1B, 160))
         } else {
             (WHITE, Color::rgba(255, 255, 255, 150))
         };
-        let _ = BLACK;
         let mut modes = [ColorMode::Accent; 6];
         for (i, k) in widgets::MODULES.iter().enumerate() {
             modes[i] = match self.cfg.colors.get(module_key(*k)) {
@@ -468,39 +427,32 @@ impl App {
             net_rx: self.cfg.net_chart_rx,
             net_tx: self.cfg.net_chart_tx,
             modes,
-            label: None,
         }
     }
 
-    /// Start or stop serving this machine to follow `cfg.share`.
-    fn apply_share(&mut self) {
-        if self.cfg.share {
-            if self.cfg.share_id.is_empty() {
-                self.cfg.share_id = share::new_id();
-                self.cfg.save();
-            }
-            if self.share.is_none() {
-                self.share = share::Share::start(&self.cfg, &self.metrics);
-            }
-        } else {
-            self.share = None;
-        }
-        self.metrics.want_per_disk = self.share.is_some();
-    }
-
-    /// Draw the popup from whichever machine it shows.
     fn render_popup(&mut self, first: bool) {
         let light = self.is_light();
         let theme = self.theme();
-        match self.popup.source.clone() {
-            None => self.popup.render(&theme, light, &self.metrics, first),
-            Some(key) => {
-                let t = remote_theme(&self.cfg, &theme, &key);
-                if let Some(a) = self.remotes.agents.get(&key) {
-                    self.popup.render(&t, light, &a.data, first);
-                }
-            }
+        self.popup.render(&theme, light, &self.metrics, first);
+    }
+
+    /// A new snapshot from the collector.
+    fn on_data(&mut self) {
+        let Some(c) = &self.collector else { return };
+        if let Some(d) = c.take() {
+            self.metrics = d;
+            self.last_data = std::time::Instant::now();
         }
+        self.tick();
+    }
+
+    /// Latency rows: the ping thread's last readings go into the snapshot the popup draws.
+    fn apply_ping(&mut self) {
+        let (lat, jit, target) = self.ping.read();
+        // the section title names what is actually measured (a fallback may be in use)
+        self.metrics.net_ping_host = if self.cfg.ping_host.is_empty() || target.is_empty() { self.cfg.ping_host.clone() } else { target };
+        self.metrics.net_latency = lat;
+        self.metrics.net_jitter = jit;
     }
 
     fn tick(&mut self) {
@@ -526,27 +478,16 @@ impl App {
                 }
             }
         }
-        let share_details = self.share.as_ref().map_or(false, |s| s.details_wanted());
-        self.metrics.update((self.popup.visible && self.popup.source.is_none()) || share_details);
-        // latency probe only while the local network popup is open
-        let net_open = self.popup.visible && self.popup.source.is_none() && self.popup.kind == Some(Kind::Net);
+        // the collector reads the per-process lists and other details only while a popup is open
+        let want = self.popup.visible;
+        if want != self.details {
+            self.details = want;
+            self.send(Cmd::Details(want));
+        }
+        // latency probe only while the network popup is open, and only with a configured host
+        let net_open = self.popup.visible && self.popup.kind == Some(Kind::Net);
         self.ping.set(net_open, &self.cfg.ping_host);
-        let (lat, jit, target) = self.ping.read();
-        // the section title names what is actually measured (a fallback may be in use)
-        self.metrics.net_ping_host = if self.cfg.ping_host.is_empty() || target.is_empty() { self.cfg.ping_host.clone() } else { target };
-        self.metrics.net_latency = lat;
-        self.metrics.net_jitter = jit;
-        if let Some(s) = self.share.as_mut() {
-            s.publish(&self.cfg, &self.metrics);
-        }
-        if self.remotes.poll(&mut self.cfg) {
-            self.cfg.save();
-        }
-        if self.popup.visible {
-            if let Some(key) = self.popup.source.clone() {
-                self.remotes.request_details(&key, self.cfg.top_processes as usize);
-            }
-        }
+        self.apply_ping();
         if !self.fullscreen_hidden {
             self.render();
         }
@@ -569,15 +510,7 @@ impl App {
         // what is left of its row
         let mut widths: Vec<i32> = Vec::with_capacity(self.widgets.len());
         for w in self.widgets.iter() {
-            widths.push(match w.source() {
-                None => w.width(&mut self.canvas, &theme, &self.metrics),
-                // a remote machine that stopped answering fades to grey, then takes no room;
-                // its place in the order is kept
-                Some(key) => match self.remotes.agents.get(key) {
-                    Some(a) if a.visible => w.width(&mut self.canvas, &agent_theme(&self.cfg, &theme, key, a.stale), &a.data),
-                    _ => 0,
-                },
-            });
+            widths.push(w.width(&mut self.canvas, &theme, &self.metrics));
         }
         let visible: Vec<(usize, i32)> = widths.iter().cloned().enumerate().filter(|(_, w)| *w > 0).collect();
         let stretched = |i: usize| vertical && self.cfg.widgets.get(i).map_or(false, |n| self.cfg.stretched.contains(n));
@@ -643,7 +576,7 @@ impl App {
         let y = (h - theme.inner_h) / 2;
         self.layout.clear();
         // one line per layout change so tests and bug reports can find the widgets
-        let sig: Vec<String> = visible.iter().map(|(i, w)| format!("{}{:?}@{}", self.widgets[*i].source().map(|s| format!("{s}/")).unwrap_or_default(), self.widgets[*i].kind(), w)).collect();
+        let sig: Vec<String> = visible.iter().map(|(i, w)| format!("{:?}@{}", self.widgets[*i].kind(), w)).collect();
         let sig = sig.join(" ");
         if sig != self.layout_sig {
             self.layout_sig = sig.clone();
@@ -660,14 +593,7 @@ impl App {
             } else {
                 &theme
             };
-            match self.widgets[*i].source() {
-                None => self.widgets[*i].draw(&mut self.canvas, wx, wy, th, &self.metrics),
-                Some(key) => {
-                    if let Some(a) = self.remotes.agents.get(key) {
-                        self.widgets[*i].draw(&mut self.canvas, wx, wy, &agent_theme(&self.cfg, th, key, a.stale), &a.data);
-                    }
-                }
-            }
+            self.widgets[*i].draw(&mut self.canvas, wx, wy, th, &self.metrics);
             let cell = if vertical {
                 (main - gap / 2, main + h + gap / 2, cross - gap / 2, cross + w + gap / 2)
             } else {
@@ -691,7 +617,7 @@ impl App {
                     self.canvas.fill_rect(mx - 1, y0, theme.s(2.0), y1 - y0, theme.accent);
                 }
             } else {
-                let slot_x = self.slot_x(slot, gap, edge, total);
+                let slot_x = self.slot_x(slot, total);
                 self.canvas.fill_rect(slot_x - 1, y - theme.s(2.0), theme.s(2.0), theme.inner_h + theme.s(4.0), theme.accent);
             }
         }
@@ -705,6 +631,10 @@ impl App {
             if self.ticks % 30 == 1 {
                 log!("UpdateLayeredWindow failed: {e}");
             }
+        }
+        // WINDOWS_STATS_DEBUG_DUMP=<dir>: the strip as drawn, for checking the rendering
+        if let Some(dir) = std::env::var_os("WINDOWS_STATS_DEBUG_DUMP") {
+            let _ = self.canvas.save_bmp(&std::path::Path::new(&dir).join("strip.bmp"));
         }
         if self.popup.visible {
             self.render_popup(false);
@@ -758,7 +688,6 @@ impl App {
     /// Left click on the strip at bar-client (x, y).
     fn click(&mut self, x: i32, y: i32) {
         let Some((wi, kind, p0, p1, q0, q1)) = self.widget_at(x, y) else { return };
-        let source = self.widgets.get(wi).and_then(|w| w.source().map(|s| s.to_string()));
         let Some(tb) = self.taskbar.as_ref() else { return };
         let mut bar_rc = RECT::default();
         let mut tray_rc = RECT::default();
@@ -771,11 +700,11 @@ impl App {
         } else {
             RECT { left: bar_rc.left + p0, top: bar_rc.top, right: bar_rc.left + p1, bottom: bar_rc.bottom }
         };
-        if self.popup.toggle(kind, source.clone(), wi, anchor, tray_rc) {
-            match source {
-                None => self.metrics.begin_details(),
-                Some(key) => self.remotes.request_details(&key, self.cfg.top_processes as usize),
-            }
+        if self.popup.toggle(kind, wi, anchor, tray_rc) {
+            // the collector starts the per-process lists now; the popup shows "collecting"
+            // for the moment until that sample arrives
+            self.details = true;
+            self.send(Cmd::BeginDetails);
             self.render_popup(true);
         }
     }
@@ -840,7 +769,7 @@ impl App {
     }
 
     /// x of a slot boundary in bar-client coords.
-    fn slot_x(&self, slot: usize, _gap: i32, _edge: i32, total: i32) -> i32 {
+    fn slot_x(&self, slot: usize, total: i32) -> i32 {
         match self.layout.get(slot) {
             // x0 already sits in the middle of the gap before the widget
             Some((_, _, x0, ..)) => (*x0).max(1),
@@ -893,6 +822,7 @@ impl App {
             self.cfg.widgets.insert(insert_at.min(self.cfg.widgets.len()), name);
             self.cfg.save();
             self.widgets = widgets::build(&self.cfg.widgets);
+            log!("widgets reordered: {}", self.cfg.widgets.join(", "));
         }
         self.render();
     }
@@ -925,23 +855,16 @@ impl App {
 
     fn reload(&mut self) {
         self.cfg = Config::load();
-        let keys = remote_keys(&self.cfg);
-        widgets::normalize(&mut self.cfg.widgets, &keys);
-        let on = self.cfg.discovery;
-        self.remotes.set_discovery(on);
-        self.share = None;
+        widgets::normalize(&mut self.cfg.widgets);
         i18n::set_language(&self.cfg.language);
         self.widgets = widgets::build(&self.cfg.widgets);
-        self.metrics = Metrics::new(&self.cfg.disk, self.cfg.top_processes as usize, &self.cfg.net_disabled, &self.cfg.disks_disabled);
-        self.metrics.set_group_pe(self.cfg.group_pe_cores);
-        self.apply_share();
-        unsafe {
-            SetTimer(self.hidden, TIMER_ID, self.cfg.update_ms.max(250), None);
-        }
+        self.popup.opacity = backdrop::Opacity::from_config(&self.cfg.popup_opacity);
+        self.reconfigure();
         log!("config reloaded");
+        self.tick();
     }
 
-    fn shutdown(self) {
+    fn shutdown(mut self) {
         unsafe {
             let _ = DestroyWindow(self.popup.hwnd);
             let _ = DestroyWindow(self.about.hwnd);
@@ -951,6 +874,9 @@ impl App {
         }
         if let Some(tb) = &self.taskbar {
             tb.restore();
+        }
+        if let Some(c) = self.collector.take() {
+            c.stop();
         }
     }
 }
@@ -973,50 +899,89 @@ unsafe extern "system" fn shell_event_proc(
 
 unsafe extern "system" fn hidden_wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
+        collector::WM_APP_DATA => {
+            with_app(|app| app.on_data());
+            LRESULT(0)
+        }
         WM_TIMER => {
-            if wparam.0 == TIMER_UPDATE {
-                unsafe {
-                    let _ = KillTimer(hwnd, TIMER_UPDATE);
+            match wparam.0 {
+                TIMER_ZORDER => {
+                    with_app(|app| app.raise_bar());
                 }
-                update::check_async(hwnd, false);
-                return LRESULT(0);
-            }
-            if wparam.0 == TIMER_ZORDER {
-                with_app(|app| app.raise_bar());
-                return LRESULT(0);
-            }
-            if wparam.0 == TIMER_ZBURST {
-                with_app(|app| {
-                    app.raise_bar();
-                    app.zburst = app.zburst.saturating_sub(1);
-                    if app.zburst == 0 {
-                        unsafe {
-                            let _ = KillTimer(app.hidden, TIMER_ZBURST);
+                TIMER_ZBURST => {
+                    with_app(|app| {
+                        app.raise_bar();
+                        app.zburst = app.zburst.saturating_sub(1);
+                        if app.zburst == 0 {
+                            unsafe {
+                                let _ = KillTimer(app.hidden, TIMER_ZBURST);
+                            }
                         }
+                    });
+                }
+                TIMER_WATCH => {
+                    // samples drive the strip; without them (suspended, collector busy) the
+                    // strip is still re-attached when Explorer came back
+                    with_app(|app| {
+                        if app.last_data.elapsed().as_millis() as u32 >= WATCH_MS {
+                            app.tick();
+                        }
+                    });
+                }
+                _ => {}
+            }
+            LRESULT(0)
+        }
+        metrics::net::WM_APP_NET => {
+            with_app(|app| app.send(Cmd::RefreshNet));
+            LRESULT(0)
+        }
+        WM_POWERBROADCAST => {
+            match wparam.0 {
+                PBT_APMSUSPEND => {
+                    log!("system suspending");
+                    with_app(|app| {
+                        app.popup.hide("suspend");
+                        app.send(Cmd::Suspend);
+                    });
+                }
+                PBT_APMRESUMESUSPEND | PBT_APMRESUMEAUTOMATIC => {
+                    log!("system resumed");
+                    with_app(|app| {
+                        app.send(Cmd::Resume);
+                        app.tick();
+                    });
+                }
+                _ => {}
+            }
+            LRESULT(1)
+        }
+        // light / dark switch, accent colour, taskbar size or a monitor change: redraw now
+        WM_SETTINGCHANGE | WM_THEMECHANGED | WM_DWMCOLORIZATIONCOLORCHANGED | WM_DISPLAYCHANGE => {
+            with_app(|app| app.tick());
+            unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+        }
+        WM_QUERYENDSESSION => LRESULT(1),
+        WM_ENDSESSION => {
+            if wparam.0 != 0 {
+                // the session ends without our message loop finishing: put the taskbar back now
+                log!("session ending");
+                with_app(|app| {
+                    if let Some(tb) = &app.taskbar {
+                        tb.restore();
                     }
                 });
-                return LRESULT(0);
             }
-            with_app(|app| app.tick());
+            LRESULT(0)
+        }
+        WM_CLOSE => {
+            unsafe {
+                let _ = DestroyWindow(hwnd);
+            }
             LRESULT(0)
         }
         WM_DESTROY => {
             unsafe { PostQuitMessage(0) };
-            LRESULT(0)
-        }
-        update::WM_APP_UPDATE => {
-            update_result(hwnd, wparam.0 == 1);
-            LRESULT(0)
-        }
-        metrics::net::WM_APP_NET => {
-            with_app(|app| {
-                app.metrics.refresh_net();
-                log!("net: interfaces changed, {} listed", app.metrics.net_ifaces.len());
-                if app.popup.visible && app.popup.source.is_none() {
-                    app.popup.relayout();
-                    app.render_popup(false);
-                }
-            });
             LRESULT(0)
         }
         _ => {
@@ -1247,24 +1212,6 @@ const MENU_TOP_BASE: usize = 490;
 const MENU_BAR_BASE: usize = 500;
 /// language: MENU_LANG_BASE = system language, then one entry per locale
 const MENU_LANG_BASE: usize = 600;
-/// Remote submenu: the discovery toggle, then one block of ids per listed agent
-const MENU_REMOTE_DISCOVERY: usize = 700;
-const MENU_REMOTE_SHARE: usize = 701;
-const MENU_REMOTE_BASE: usize = 2000;
-const MENU_REMOTE_STRIDE: usize = 200;
-/// items inside an agent's block
-const RM_CONNECT: usize = 0;
-const RM_FORGET: usize = 1;
-const RM_LEFT: usize = 2;
-const RM_RIGHT: usize = 3;
-const RM_WIDGET: usize = 10;
-const RM_COLOR: usize = 40;
-const RM_COLOR_STRIDE: usize = 16;
-const RM_SPLIT_PE: usize = 4;
-const RM_GROUP_PE: usize = 5;
-const RM_LABELS: usize = 6;
-/// + CATALOG index: stretch that chart of the machine (vertical taskbar)
-const RM_STRETCH: usize = 140;
 const TOP_COUNTS: &[u32] = &[5, 8, 10, 15, 20];
 const CHART_WIDTHS: &[(u32, &str)] = &[(34, "menu.small"), (48, "menu.medium"), (64, "menu.large"), (96, "menu.extra_large")];
 const FONT_SIZES: &[(f32, &str)] = &[(0.85, "menu.small"), (1.0, "menu.normal"), (1.15, "menu.large"), (1.3, "menu.extra_large")];
@@ -1307,90 +1254,14 @@ unsafe fn color_entries(sub: HMENU, base: usize, current: &str, cfg: &Config, dp
         }
     }
 }
-const INTERVALS: &[(u32, &str)] = &[(500, "0.5 s"), (1000, "1 s"), (2000, "2 s"), (5000, "5 s")];
 
-/// Remote submenu: discovery toggle, then one submenu per machine (configured or heard).
-unsafe fn remote_menu(cfg: &Config, entries: &[RemoteEntry], dpi: u32, vertical: bool) -> Option<HMENU> {
-    unsafe {
-        let rm = CreatePopupMenu().ok()?;
-        menu_item(rm, MENU_REMOTE_DISCOVERY, &t("menu.discovery"), cfg.discovery);
-        menu_item(rm, MENU_REMOTE_SHARE, &t("menu.share"), cfg.share);
-        let _ = AppendMenuW(rm, MF_SEPARATOR, 0, PCWSTR::null());
-        if entries.is_empty() {
-            let txt = wide(&t(if cfg.discovery { "menu.no_agents" } else { "menu.discovery_off" }));
-            let _ = AppendMenuW(rm, MF_STRING | MF_GRAYED, 0, pcwstr(&txt));
-            return Some(rm);
-        }
-        for (ei, e) in entries.iter().enumerate() {
-            let base = MENU_REMOTE_BASE + ei * MENU_REMOTE_STRIDE;
-            let sub = CreatePopupMenu().ok()?;
-            match &e.key {
-                None => menu_item(sub, base + RM_CONNECT, &t("menu.connect"), false),
-                Some(key) => {
-                    menu_item(sub, base + RM_CONNECT, &t("menu.connected"), e.enabled);
-                    let _ = AppendMenuW(sub, MF_SEPARATOR, 0, PCWSTR::null());
-                    let rc = cfg.remotes.get(key);
-                    for (mi, kind) in widgets::MODULES.iter().enumerate() {
-                        let feed = match kind {
-                            Kind::Gpu => e.has.iter().any(|h| h == "gpu"),
-                            Kind::Battery => e.has.iter().any(|h| h == "battery"),
-                            _ => true,
-                        };
-                        if !feed {
-                            continue;
-                        }
-                        let ms = CreatePopupMenu().ok()?;
-                        for (i, (k, name, title)) in widgets::CATALOG.iter().enumerate() {
-                            if k != kind {
-                                continue;
-                            }
-                            let full = format!("{key}/{name}");
-                            let on = cfg.widgets.iter().any(|w| *w == full);
-                            menu_item(ms, base + RM_WIDGET + i, &t(title), on);
-                            if vertical && on && widgets::is_chart(name) {
-                                menu_item(ms, base + RM_STRETCH + i, &t("menu.stretch_chart"), cfg.stretched.iter().any(|w| *w == full));
-                            }
-                        }
-                        if *kind != Kind::Battery {
-                            let _ = AppendMenuW(ms, MF_SEPARATOR, 0, PCWSTR::null());
-                            let cs = CreatePopupMenu().ok()?;
-                            let current = rc.and_then(|r| r.colors.get(module_key(*kind))).map(String::as_str).unwrap_or("accent");
-                            let cb = base + RM_COLOR + mi * RM_COLOR_STRIDE;
-                            color_entries(cs, cb, current, cfg, dpi);
-                            menu_submenu(ms, cs, &t("menu.colour"));
-                        }
-                        if *kind == Kind::Cpu && e.splittable {
-                            // one divider setting for P / E boundaries, clusters and sockets
-                            menu_item(ms, base + RM_SPLIT_PE, &t(if e.hybrid { "menu.show_pe_splitter" } else { "menu.show_splitter" }), rc.map_or(true, |r| r.split_pe));
-                        }
-                        if *kind == Kind::Cpu && e.hybrid {
-                            menu_item(ms, base + RM_GROUP_PE, &t("menu.group_pe_cores"), rc.map_or(false, |r| r.group_pe));
-                        }
-                        let on = cfg.widgets.iter().any(|w| widgets::split_name(w).0 == key && widgets::CATALOG.iter().any(|(k2, n, _)| k2 == kind && widgets::split_name(w).1 == *n));
-                        let title = if on { format!("{}  \u{2022}", kind.title()) } else { kind.title() };
-                        menu_submenu(sub, ms, &title);
-                    }
-                    let _ = AppendMenuW(sub, MF_SEPARATOR, 0, PCWSTR::null());
-                    menu_item(sub, base + RM_LABELS, &t("menu.labels"), rc.map_or(true, |r| r.labels));
-                    menu_item(sub, base + RM_LEFT, &t("menu.move_left"), false);
-                    menu_item(sub, base + RM_RIGHT, &t("menu.move_right"), false);
-                    let _ = AppendMenuW(sub, MF_SEPARATOR, 0, PCWSTR::null());
-                    menu_item(sub, base + RM_FORGET, &t("menu.forget"), false);
-                }
-            }
-            let mut title = e.name.clone();
-            if !e.os.is_empty() {
-                title.push_str(&format!("  {} {}", e.os, e.arch));
-            }
-            if let Some((c, m)) = e.load {
-                title.push_str(&format!("  {:.0}% \u{00B7} {:.0}%", c * 100.0, m * 100.0));
-            }
-            if !e.state.is_empty() {
-                title.push_str(&format!("  ({})", e.state));
-            }
-            menu_submenu(rm, sub, &title);
-        }
-        Some(rm)
+/// Update intervals as shown in the menu.
+fn interval_title(ms: u32) -> String {
+    if ms % 1000 == 0 {
+        format!("{} s", ms / 1000)
+    } else {
+        // "0,5 s" in Turkish and other comma-decimal languages, "0.5 s" in English
+        format!("{} s", util::format_decimal(ms as f64 / 1000.0, 1))
     }
 }
 
@@ -1431,10 +1302,8 @@ unsafe fn menu_submenu_ex(menu: HMENU, sub: HMENU, text: &str, enabled: bool) {
 
 /// Settings menu: one submenu per module with a checkable entry per widget type.
 unsafe fn build_menu(st: &MenuState) -> Option<HMENU> {
-    let MenuState { cfg, hybrid, splittable, gpu_ok, battery_ok, update, remotes, dpi, vertical, .. } = st;
+    let MenuState { cfg, hybrid, splittable, gpu_ok, battery_ok, dpi, vertical, .. } = st;
     let (hybrid, splittable, gpu_ok, battery_ok, dpi, vertical) = (*hybrid, *splittable, *gpu_ok, *battery_ok, *dpi, *vertical);
-    let update = update.as_deref();
-    let remotes: &[RemoteEntry] = remotes;
     unsafe {
         let menu = CreatePopupMenu().ok()?;
         for (mi, kind) in widgets::MODULES.iter().enumerate() {
@@ -1480,11 +1349,6 @@ unsafe fn build_menu(st: &MenuState) -> Option<HMENU> {
             menu_submenu_ex(menu, sub, &title, available);
         }
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
-        if let Some(rm) = remote_menu(cfg, remotes, dpi, vertical) {
-            let any = !cfg.remotes.is_empty();
-            menu_submenu(menu, rm, &if any { format!("{}  \u{2022}", t("menu.remote")) } else { t("menu.remote") });
-        }
-        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         menu_item(menu, MENU_LABELS, &t("menu.labels"), cfg.labels);
 
         let accent = CreatePopupMenu().ok()?;
@@ -1523,8 +1387,8 @@ unsafe fn build_menu(st: &MenuState) -> Option<HMENU> {
         menu_submenu(menu, pos, &t("menu.position"));
 
         let interval = CreatePopupMenu().ok()?;
-        for (i, (ms, title)) in INTERVALS.iter().enumerate() {
-            menu_item(interval, MENU_INTERVAL_BASE + i, title, cfg.update_ms == *ms);
+        for (i, ms) in config::INTERVALS.iter().enumerate() {
+            menu_item(interval, MENU_INTERVAL_BASE + i, &interval_title(*ms), cfg.update_ms == *ms);
         }
         menu_submenu(menu, interval, &t("menu.update_interval"));
 
@@ -1556,10 +1420,6 @@ unsafe fn build_menu(st: &MenuState) -> Option<HMENU> {
         menu_item(menu, MENU_RELOAD, &t("menu.reload_config"), false);
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         menu_item(menu, MENU_ABOUT, &t("menu.about"), false);
-        match update {
-            Some(v) => menu_item(menu, MENU_GET_UPDATE, &i18n::tf("menu.update_available", &[("v", v)]), false),
-            None => menu_item(menu, MENU_CHECK_UPDATE, &t("menu.check_updates"), false),
-        }
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         menu_item(menu, MENU_EXIT, &t("menu.exit"), false);
         Some(menu)
@@ -1575,44 +1435,6 @@ fn toggle(list: &mut Vec<String>, item: String) {
     }
 }
 
-fn open_url(url: &str) {
-    let verb = wide("open");
-    let u = wide(url);
-    unsafe {
-        ShellExecuteW(None, pcwstr(&verb), pcwstr(&u), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL);
-    }
-}
-
-/// A finished update check: remember a newer release for the menu; after a manual check also
-/// tell the user what was found.
-fn update_result(hidden: HWND, manual: bool) {
-    let Some(result) = update::take_result() else { return };
-    let current = about::VERSION;
-    let newer = match &result {
-        Ok(v) if update::is_newer(v, current) => Some(v.clone()),
-        _ => None,
-    };
-    match &result {
-        Ok(v) => log!("update check: latest {v}, running {current}"),
-        Err(e) => log!("update check failed: {e}"),
-    }
-    with_app(|app| app.update_available = newer.clone());
-    if !manual {
-        return;
-    }
-    let title = wide(&t("update.title"));
-    let (text, style) = match (&result, &newer) {
-        (Ok(_), Some(v)) => (i18n::tf("update.available", &[("v", v), ("cur", current)]), MB_YESNO | MB_ICONQUESTION),
-        (Ok(_), None) => (i18n::tf("update.latest", &[("v", current)]), MB_OK | MB_ICONINFORMATION),
-        (Err(e), _) => (i18n::tf("update.failed", &[("err", e)]), MB_OK | MB_ICONERROR),
-    };
-    let text_w = wide(&text);
-    let r = unsafe { MessageBoxW(hidden, pcwstr(&text_w), pcwstr(&title), style | MB_TOPMOST) };
-    if newer.is_some() && r == IDYES {
-        open_url(update::RELEASES_URL);
-    }
-}
-
 /// Everything the menu builder needs, snapshotted from the app so no borrow is held while
 /// the menu runs its modal loop.
 struct MenuState {
@@ -1622,8 +1444,6 @@ struct MenuState {
     splittable: bool,
     gpu_ok: bool,
     battery_ok: bool,
-    update: Option<String>,
-    remotes: Vec<RemoteEntry>,
     dpi: u32,
     /// the taskbar is docked at a side: the vertical-layout items are shown
     vertical: bool,
@@ -1632,12 +1452,9 @@ struct MenuState {
     align: TRACK_POPUP_MENU_FLAGS,
 }
 
-/// Snapshot for the menu. `fresh` re-reads the remote list; a refresh while the menu is open
-/// keeps the list the open menu was built from so the ids stay valid.
-fn menu_state(fresh: bool) -> Option<MenuState> {
+fn menu_state() -> Option<MenuState> {
     with_app(|app| {
-        let remotes = if fresh { app.remote_entries() } else { app.menu_remote.clone() };
-        app.menu_remote = remotes.clone();
+        let (anchor, align) = app.menu_anchor();
         MenuState {
             hidden: app.hidden,
             cfg: app.cfg.clone(),
@@ -1645,28 +1462,21 @@ fn menu_state(fresh: bool) -> Option<MenuState> {
             splittable: app.metrics.cpu_breaks().iter().any(|b| *b),
             gpu_ok: app.metrics.gpu_available,
             battery_ok: app.metrics.battery_available,
-            update: app.update_available.clone(),
-            remotes,
             dpi: app.taskbar.as_ref().map(|t| t.dpi()).or_else(|| util::dpi_for_window(app.hidden)).unwrap_or(96),
             vertical: app.taskbar.as_ref().map_or(false, |t| t.vertical()),
-            anchor: app.menu_anchor().0,
-            align: app.menu_anchor().1,
+            anchor,
+            align,
         }
     })
 }
 
 /// Commands that change a setting and keep the menu open; the rest close it.
 fn menu_sticky(id: u32) -> bool {
-    let id = id as usize;
-    match id {
-        MENU_EXIT | MENU_CONFIG | MENU_RELOAD | MENU_TASKMGR | MENU_ABOUT | MENU_CHECK_UPDATE | MENU_GET_UPDATE => false,
-        c if c >= MENU_REMOTE_BASE => !matches!((c - MENU_REMOTE_BASE) % MENU_REMOTE_STRIDE, RM_CONNECT | RM_FORGET),
-        _ => true,
-    }
+    !matches!(id as usize, MENU_EXIT | MENU_CONFIG | MENU_RELOAD | MENU_TASKMGR | MENU_ABOUT)
 }
 
 fn menu_rebuild() -> Option<HMENU> {
-    let st = menu_state(false)?;
+    let st = menu_state()?;
     unsafe { build_menu(&st) }
 }
 
@@ -1693,16 +1503,12 @@ fn menu_command(cmd: u32) {
         MENU_RELOAD => {
             with_app(|app| app.reload());
         }
-        MENU_CHECK_UPDATE => {
-            if let Some(hidden) = with_app(|app| app.hidden) {
-                update::check_async(hidden, true);
-            }
-        }
-        MENU_GET_UPDATE => open_url(update::RELEASES_URL),
         MENU_AUTOSTART => {
             let enable = !util::autostart_enabled();
             if !util::set_autostart(enable) {
                 log!("autostart change failed");
+            } else {
+                log!("autostart {}", if enable { "enabled" } else { "disabled" });
             }
         }
         other => {
@@ -1712,7 +1518,7 @@ fn menu_command(cmd: u32) {
 }
 
 fn show_menu() {
-    let Some(st) = menu_state(true) else { return };
+    let Some(st) = menu_state() else { return };
     let cmd = unsafe {
         let Some(menu) = build_menu(&st) else {
             menu::free_bitmaps();
@@ -1729,7 +1535,6 @@ fn show_menu() {
 }
 
 impl App {
-    /// Apply a settings change from the context menu, persist it and redraw.
     /// A click on a toggling row in the popup: flip the item in the config, save, re-render.
     fn popup_action(&mut self, action: popup::Action) {
         match &action {
@@ -1770,10 +1575,6 @@ impl App {
             }
             _ => {}
         }
-        if let Some(key) = self.popup.source.clone() {
-            self.remote_popup_action(&key, action);
-            return;
-        }
         // at least one interface / disk must stay on, otherwise the widget shows nothing
         match action {
             popup::Action::ToggleNet(alias) => {
@@ -1782,8 +1583,12 @@ impl App {
                 if last {
                     return;
                 }
-                toggle(&mut self.cfg.net_disabled, alias);
-                self.metrics.set_net_disabled(&self.cfg.net_disabled);
+                toggle(&mut self.cfg.net_disabled, alias.clone());
+                // show the change at once; the collector's next sample agrees
+                let off = self.cfg.net_disabled.contains(&alias);
+                for i in self.metrics.net_ifaces.iter_mut().filter(|i| i.alias == alias) {
+                    i.enabled = !off;
+                }
             }
             popup::Action::ToggleDisk(model) => {
                 let last = self.metrics.disks.iter().filter(|d| d.enabled).count() <= 1
@@ -1791,176 +1596,20 @@ impl App {
                 if last {
                     return;
                 }
-                toggle(&mut self.cfg.disks_disabled, model);
-                self.metrics.set_disks_disabled(&self.cfg.disks_disabled);
+                toggle(&mut self.cfg.disks_disabled, model.clone());
+                let off = self.cfg.disks_disabled.contains(&model);
+                for d in self.metrics.disks.iter_mut().filter(|d| d.model == model) {
+                    d.enabled = !off;
+                }
             }
             _ => return,
         }
         self.cfg.save();
+        self.reconfigure();
         self.render_popup(false);
-    }
-
-    /// The same toggles for a remote machine, kept in its `[remotes.<key>]` section.
-    fn remote_popup_action(&mut self, key: &str, action: popup::Action) {
-        let Some(a) = self.remotes.agents.get(key) else { return };
-        let Some(rc) = self.cfg.remotes.get_mut(key) else { return };
-        match action {
-            popup::Action::ToggleNet(alias) => {
-                let last = a.data.net_ifaces.iter().filter(|i| i.enabled).count() <= 1 && a.data.net_ifaces.iter().any(|i| i.enabled && i.alias == alias);
-                if last {
-                    return;
-                }
-                toggle(&mut rc.net_disabled, alias);
-            }
-            popup::Action::ToggleDisk(model) => {
-                let last = a.data.disks.iter().filter(|d| d.enabled).count() <= 1 && a.data.disks.iter().any(|d| d.enabled && d.model == model);
-                if last {
-                    return;
-                }
-                toggle(&mut rc.disks_disabled, model);
-            }
-            _ => return,
-        }
-        let (net, disks) = (rc.net_disabled.clone(), rc.disks_disabled.clone());
-        self.remotes.set_disabled(key, &net, &disks);
-        self.cfg.save();
-        self.render_popup(false);
-    }
-
-    /// Lines of the Remote submenu: configured machines first, then the ones only heard.
-    fn remote_entries(&self) -> Vec<RemoteEntry> {
-        let seen = self.remotes.seen();
-        let mut out = Vec::new();
-        for (key, rc) in &self.cfg.remotes {
-            let s = seen.iter().find(|s| s.beacon.id == rc.id);
-            let agent = self.remotes.agents.get(key);
-            let (os, arch) = match agent.and_then(|a| a.info.as_ref()) {
-                Some(i) => (i.os.clone(), i.arch.clone()),
-                None => s.map(|s| (s.beacon.os.clone(), s.beacon.arch.clone())).unwrap_or_default(),
-            };
-            out.push(RemoteEntry {
-                key: Some(key.clone()),
-                id: rc.id.clone(),
-                name: if rc.name.is_empty() { key.clone() } else { rc.name.clone() },
-                os,
-                arch,
-                address: rc.address.clone(),
-                enabled: rc.enabled,
-                state: if rc.enabled { self.remotes.state_text(key) } else { String::new() },
-                load: s.map(|s| (s.beacon.cpu, s.beacon.mem)).or_else(|| agent.filter(|a| a.online).map(|a| (a.data.cpu_total, a.data.mem.pct))),
-                has: agent.and_then(|a| a.info.as_ref()).map(|i| i.has.clone()).unwrap_or_else(|| vec!["cpu".into(), "mem".into(), "net".into(), "disk".into()]),
-                hybrid: agent.map_or(false, |a| a.data.cpu_hybrid()),
-                splittable: agent.map_or(false, |a| a.data.cpu_breaks().iter().any(|b| *b)),
-            });
-        }
-        for s in &seen {
-            // configured ones are listed above; our own share beacon is not a remote machine
-            if self.cfg.remotes.values().any(|rc| rc.id == s.beacon.id) || (!self.cfg.share_id.is_empty() && s.beacon.id == self.cfg.share_id) {
-                continue;
-            }
-            out.push(RemoteEntry {
-                key: None,
-                id: s.beacon.id.clone(),
-                name: s.beacon.name.clone(),
-                os: s.beacon.os.clone(),
-                arch: s.beacon.arch.clone(),
-                address: s.addr.to_string(),
-                enabled: false,
-                state: t("remote.found"),
-                load: Some((s.beacon.cpu, s.beacon.mem)),
-                has: Vec::new(),
-                hybrid: false,
-                splittable: false,
-            });
-        }
-        out
-    }
-
-    /// A command from an agent's block of the Remote submenu.
-    fn apply_remote(&mut self, entry: usize, item: usize) {
-        let Some(e) = self.menu_remote.get(entry).cloned() else { return };
-        match (e.key.clone(), item) {
-            (None, RM_CONNECT) => {
-                // first connection: a config entry named after the machine
-                let key = remote::key_for(&e.name, &self.cfg.remotes);
-                let label: String = e.name.chars().filter(|c| c.is_ascii_alphanumeric()).take(3).collect::<String>().to_uppercase();
-                self.cfg.remotes.insert(
-                    key.clone(),
-                    config::RemoteCfg { id: e.id.clone(), name: e.name.clone(), address: e.address.clone(), enabled: true, label, ..Default::default() },
-                );
-                // start with the two charts every agent can feed
-                widgets::toggle_widget(&mut self.cfg.widgets, &format!("{key}/cpu_line"));
-                widgets::toggle_widget(&mut self.cfg.widgets, &format!("{key}/mem"));
-            }
-            (None, _) => return,
-            (Some(key), RM_CONNECT) => {
-                if let Some(rc) = self.cfg.remotes.get_mut(&key) {
-                    rc.enabled = !rc.enabled;
-                }
-            }
-            (Some(key), RM_FORGET) => {
-                self.cfg.remotes.remove(&key);
-                self.cfg.widgets.retain(|w| widgets::split_name(w).0 != key);
-                if self.popup.source.as_deref() == Some(key.as_str()) {
-                    self.popup.hide("forget");
-                }
-            }
-            (Some(key), RM_LABELS) => {
-                if let Some(rc) = self.cfg.remotes.get_mut(&key) {
-                    rc.labels = !rc.labels;
-                }
-            }
-            (Some(key), RM_SPLIT_PE) => {
-                if let Some(rc) = self.cfg.remotes.get_mut(&key) {
-                    rc.split_pe = !rc.split_pe;
-                }
-            }
-            (Some(key), RM_GROUP_PE) => {
-                if let Some(rc) = self.cfg.remotes.get_mut(&key) {
-                    rc.group_pe = !rc.group_pe;
-                    let on = rc.group_pe;
-                    self.remotes.set_group_pe(&key, on);
-                }
-            }
-            (Some(key), i) if (RM_STRETCH..RM_STRETCH + widgets::CATALOG.len()).contains(&i) => {
-                toggle(&mut self.cfg.stretched, format!("{key}/{}", widgets::CATALOG[i - RM_STRETCH].1));
-            }
-            (Some(key), RM_LEFT) => widgets::move_source(&mut self.cfg.widgets, &key, -1),
-            (Some(key), RM_RIGHT) => widgets::move_source(&mut self.cfg.widgets, &key, 1),
-            (Some(key), i) if (RM_WIDGET..RM_WIDGET + widgets::CATALOG.len()).contains(&i) => {
-                widgets::toggle_widget(&mut self.cfg.widgets, &format!("{key}/{}", widgets::CATALOG[i - RM_WIDGET].1));
-            }
-            (Some(key), i) if (RM_COLOR..RM_COLOR + widgets::MODULES.len() * RM_COLOR_STRIDE).contains(&i) => {
-                let mi = (i - RM_COLOR) / RM_COLOR_STRIDE;
-                let entry = (i - RM_COLOR) % RM_COLOR_STRIDE;
-                let value = if entry < COLOR_MODES.len() {
-                    COLOR_MODES[entry].0
-                } else {
-                    widgets::PALETTE.get(entry - COLOR_MODES.len()).map(|p| p.0).unwrap_or("accent")
-                };
-                if let Some(rc) = self.cfg.remotes.get_mut(&key) {
-                    let mk = module_key(widgets::MODULES[mi]).to_string();
-                    if value == "accent" {
-                        rc.colors.remove(&mk);
-                    } else {
-                        rc.colors.insert(mk, value.to_string());
-                    }
-                }
-            }
-            _ => return,
-        }
-        let keys = remote_keys(&self.cfg);
-        widgets::normalize(&mut self.cfg.widgets, &keys);
-        self.cfg.save();
-        self.widgets = widgets::build(&self.cfg.widgets);
-        if self.remotes.poll(&mut self.cfg) {
-            self.cfg.save();
-        }
-        self.tick();
     }
 
     fn apply_menu(&mut self, cmd: usize) {
-        let mut interval_changed = false;
         match cmd {
             MENU_LABELS => self.cfg.labels = !self.cfg.labels,
             c if (MENU_STRETCH_BASE..MENU_STRETCH_BASE + widgets::CATALOG.len()).contains(&c) => {
@@ -1972,17 +1621,13 @@ impl App {
                 let dir = if (c - MENU_MOVE_BASE) % 2 == 0 { -1 } else { 1 };
                 widgets::move_module(&mut self.cfg.widgets, widgets::MODULES[mi], dir);
             }
-            MENU_GROUP_PE => {
-                self.cfg.group_pe_cores = !self.cfg.group_pe_cores;
-                self.metrics.set_group_pe(self.cfg.group_pe_cores);
-            }
+            MENU_GROUP_PE => self.cfg.group_pe_cores = !self.cfg.group_pe_cores,
             c if (MENU_LANG_BASE..=MENU_LANG_BASE + i18n::LOCALES.len()).contains(&c) => {
                 self.cfg.language = if c == MENU_LANG_BASE { "auto".to_string() } else { i18n::LOCALES[c - MENU_LANG_BASE - 1].0.to_string() };
                 i18n::set_language(&self.cfg.language);
             }
             c if (MENU_TOP_BASE..MENU_TOP_BASE + TOP_COUNTS.len()).contains(&c) => {
                 self.cfg.top_processes = TOP_COUNTS[c - MENU_TOP_BASE];
-                self.metrics.set_top_n(self.cfg.top_processes as usize);
             }
             c if (MENU_CHART_BASE..MENU_CHART_BASE + CHART_WIDTHS.len()).contains(&c) => {
                 self.cfg.chart_width = CHART_WIDTHS[c - MENU_CHART_BASE].0;
@@ -2021,35 +1666,17 @@ impl App {
                 self.cfg.popup_opacity = POPUP_OPACITY[c - MENU_OPACITY_BASE].0.into();
                 self.popup.opacity = backdrop::Opacity::from_config(&self.cfg.popup_opacity);
             }
-            c if (MENU_INTERVAL_BASE..MENU_INTERVAL_BASE + INTERVALS.len()).contains(&c) => {
-                self.cfg.update_ms = INTERVALS[c - MENU_INTERVAL_BASE].0;
-                interval_changed = true;
+            c if (MENU_INTERVAL_BASE..MENU_INTERVAL_BASE + config::INTERVALS.len()).contains(&c) => {
+                self.cfg.update_ms = config::INTERVALS[c - MENU_INTERVAL_BASE];
             }
             c if (MENU_WIDGET_BASE..MENU_WIDGET_BASE + widgets::CATALOG.len()).contains(&c) => {
                 widgets::toggle_widget(&mut self.cfg.widgets, widgets::CATALOG[c - MENU_WIDGET_BASE].1);
-            }
-            MENU_REMOTE_DISCOVERY => {
-                self.cfg.discovery = !self.cfg.discovery;
-                let on = self.cfg.discovery;
-                self.remotes.set_discovery(on);
-            }
-            MENU_REMOTE_SHARE => {
-                self.cfg.share = !self.cfg.share;
-                self.apply_share();
-            }
-            c if c >= MENU_REMOTE_BASE => {
-                self.apply_remote((c - MENU_REMOTE_BASE) / MENU_REMOTE_STRIDE, (c - MENU_REMOTE_BASE) % MENU_REMOTE_STRIDE);
-                return;
             }
             _ => return,
         }
         self.cfg.save();
         self.widgets = widgets::build(&self.cfg.widgets);
-        if interval_changed {
-            unsafe {
-                SetTimer(self.hidden, TIMER_ID, self.cfg.update_ms.max(250), None);
-            }
-        }
+        self.reconfigure();
         if self.cfg.position == "left" {
             if let Some(tb) = &self.taskbar {
                 tb.restore();

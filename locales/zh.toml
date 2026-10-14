@@ -1,4 +1,4 @@
-# winstats: 简体中文
+# Windows Stats: 简体中文
 
 [module]
 cpu = "处理器"
@@ -53,17 +53,7 @@ start_with_windows = "随 Windows 启动"
 task_manager = "任务管理器"
 open_config = "打开配置文件"
 reload_config = "重新加载配置"
-about = "关于 winstats"
-check_updates = "检查更新"
-update_available = "有可用更新: {v}"
-remote = "远程计算机"
-discovery = "在网络中查找代理"
-share = "在网络中共享此计算机"
-discovery_off = "打开查找以发现代理"
-no_agents = "尚未找到代理"
-connect = "连接"
-connected = "已连接"
-forget = "移除"
+about = "关于 Windows Stats"
 exit = "退出"
 na = "（不可用）"
 small = "小"
@@ -98,9 +88,7 @@ load = "负载"
 system = "系统"
 user = "用户"
 idle = "空闲"
-load_avg = "平均负载"
 clock = "时钟频率"
-offline = "离线"
 sockets = "插槽"
 p_cores = "P 核心 ({n})"
 e_cores = "E 核心 ({n})"
@@ -166,14 +154,3 @@ na = "无"
 [about]
 version = "版本 {v}"
 license = "MIT 许可证"
-
-[update]
-title = "winstats 更新"
-latest = "winstats {v} 已是最新版本。"
-available = "winstats {v} 可用 (当前 {cur})。打开下载页面?"
-failed = "无法检查更新: {err}"
-
-[remote]
-online = "在线"
-offline = "离线"
-found = "已找到"

@@ -1,4 +1,4 @@
-# winstats: ελληνικά
+# Windows Stats: ελληνικά
 
 [module]
 cpu = "Επεξεργαστής"
@@ -53,17 +53,7 @@ start_with_windows = "Εκκίνηση με τα Windows"
 task_manager = "Διαχείριση εργασιών"
 open_config = "Άνοιγμα αρχείου ρυθμίσεων"
 reload_config = "Επαναφόρτωση ρυθμίσεων"
-about = "Σχετικά με το winstats"
-check_updates = "Έλεγχος για ενημερώσεις"
-update_available = "Διαθέσιμη ενημέρωση: {v}"
-remote = "Απομακρυσμένα μηχανήματα"
-discovery = "Αναζήτηση agents στο δίκτυο"
-share = "Κοινή χρήση αυτού του μηχανήματος στο δίκτυο"
-discovery_off = "Ενεργοποιήστε την αναζήτηση για να βρεθούν agents"
-no_agents = "Δεν βρέθηκαν agents ακόμα"
-connect = "Σύνδεση"
-connected = "Συνδεδεμένο"
-forget = "Αφαίρεση"
+about = "Σχετικά με το Windows Stats"
 exit = "Έξοδος"
 na = "(μη διαθέσιμο)"
 small = "Μικρό"
@@ -98,9 +88,7 @@ load = "Φόρτος"
 system = "Σύστημα"
 user = "Χρήστης"
 idle = "Αδράνεια"
-load_avg = "Μέσος φόρτος"
 clock = "Συχνότητα"
-offline = "εκτός σύνδεσης"
 sockets = "Υποδοχές"
 p_cores = "Πυρήνες P ({n})"
 e_cores = "Πυρήνες E ({n})"
@@ -166,14 +154,3 @@ na = "δ/δ"
 [about]
 version = "Έκδοση {v}"
 license = "Άδεια MIT"
-
-[update]
-title = "Ενημέρωση winstats"
-latest = "Το winstats {v} είναι η τελευταία έκδοση."
-available = "Διατίθεται το winstats {v} (έχετε {cur}). Άνοιγμα της σελίδας λήψης;"
-failed = "Ο έλεγχος ενημερώσεων απέτυχε: {err}"
-
-[remote]
-online = "σε σύνδεση"
-offline = "εκτός σύνδεσης"
-found = "βρέθηκε"

@@ -1,5 +1,10 @@
 //! Locating the Explorer taskbar and hosting our window inside it:
 //! SetParent(our_hwnd, Shell_TrayWnd), then keep it positioned next to the notification area.
+//!
+//! Care for Explorer's stability: the strip only reads Explorer's windows (FindWindowEx,
+//! GetWindowRect) and moves its own window. The one exception is Windows 10, where the task
+//! list (ReBarWindow32) is narrowed so it does not run under the strip; it is put back on exit
+//! and whenever the strip moves away. On Windows 11 the task list is XAML and is never touched.
 
 use crate::util::{pcwstr, wide};
 use windows::Win32::Foundation::{HWND, POINT, RECT};
@@ -16,6 +21,8 @@ pub struct Taskbar {
     /// Windows 10 only: the task-list host we shrink to make room.
     pub rebar: Option<HWND>,
     pub rebar_original: Option<RECT>,
+    /// last rect handed to SetWindowPos (taskbar client coords), to skip repeating it
+    placed: std::cell::Cell<Option<RECT>>,
 }
 
 fn find_child(parent: HWND, class: &str) -> Option<HWND> {
@@ -27,9 +34,10 @@ pub fn find(floating: bool) -> Option<Taskbar> {
     let cls = wide("Shell_TrayWnd");
     let tray = unsafe { FindWindowExW(None, None, pcwstr(&cls), PCWSTR::null()).ok()? };
     let notify = find_child(tray, "TrayNotifyWnd");
-    let rebar = find_child(tray, "ReBarWindow32");
+    // Windows 11 keeps an unused ReBarWindow32 around; only Windows 10 lays the task list out in it
+    let rebar = if crate::util::is_windows11() { None } else { find_child(tray, "ReBarWindow32") };
     let rebar_original = rebar.and_then(|r| child_rect(tray, r));
-    Some(Taskbar { floating, tray, notify, rebar, rebar_original })
+    Some(Taskbar { floating, tray, notify, rebar, rebar_original, placed: std::cell::Cell::new(None) })
 }
 
 /// Rect of `child` expressed in `parent` client coordinates.
@@ -113,6 +121,10 @@ impl Taskbar {
         unsafe {
             // `as _`: isize on 64-bit, i32 on 32-bit where the crate maps this to SetWindowLongW
             SetWindowLongPtrW(hwnd, GWL_STYLE, (WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS).0 as _);
+            // no WM_PARENTNOTIFY: nothing of ours is ever sent synchronously to Explorer's window
+            let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | WS_EX_NOPARENTNOTIFY.0 as isize);
+            self.placed.set(None);
             match SetParent(hwnd, self.tray) {
                 Ok(_) => true,
                 Err(e) => {
@@ -152,16 +164,32 @@ impl Taskbar {
                     }
                 }
             }
+            let want = RECT { left: x, top: rc.top, right: x + width, bottom: rc.top + h };
             if self.floating {
                 // floating strip: taskbar client coords -> screen, kept above the taskbar
                 let mut pt = POINT { x, y: rc.top };
                 let _ = windows::Win32::Graphics::Gdi::ClientToScreen(self.tray, &mut pt);
                 let _ = SetWindowPos(hwnd, HWND_TOPMOST, pt.x, pt.y, width, h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
-            } else {
+            } else if self.needs_place(hwnd, want) {
                 let _ = SetWindowPos(hwnd, HWND_TOP, x, rc.top, width, h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
             }
+            want
         }
-        RECT { left: x, top: rc.top, right: x + width, bottom: rc.top + h }
+    }
+
+    /// Embedded strip: true unless it already sits at `want`, visible and on top of its siblings
+    /// (the XAML content of the Windows 11 taskbar can come up over it after a relayout).
+    fn needs_place(&self, hwnd: HWND, want: RECT) -> bool {
+        let same = self.placed.get() == Some(want);
+        self.placed.set(Some(want));
+        if !same {
+            return true;
+        }
+        unsafe {
+            let on_top = GetWindow(hwnd, GW_HWNDPREV).map(|h| h.0.is_null()).unwrap_or(true);
+            let here = child_rect(self.tray, hwnd).map_or(false, |r| r == want);
+            !(on_top && here && IsWindowVisible(hwnd).as_bool())
+        }
     }
 
     /// Vertical taskbar: the strip is a column. "left" is the top end, "right" the end next to
@@ -183,15 +211,16 @@ impl Taskbar {
                     }
                 }
             }
+            let want = RECT { left: rc.left, top: y, right: rc.right, bottom: y + len };
             if self.floating {
                 let mut pt = POINT { x: rc.left, y };
                 let _ = windows::Win32::Graphics::Gdi::ClientToScreen(self.tray, &mut pt);
                 let _ = SetWindowPos(hwnd, HWND_TOPMOST, pt.x, pt.y, w, len, SWP_NOACTIVATE | SWP_SHOWWINDOW);
-            } else {
+            } else if self.needs_place(hwnd, want) {
                 let _ = SetWindowPos(hwnd, HWND_TOP, rc.left, y, w, len, SWP_NOACTIVATE | SWP_SHOWWINDOW);
             }
+            want
         }
-        RECT { left: rc.left, top: y, right: rc.right, bottom: y + len }
     }
 
     /// Undo the Windows 10 task-list shrink.

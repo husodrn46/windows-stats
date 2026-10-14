@@ -1,4 +1,4 @@
-# winstats: latviešu
+# Windows Stats: latviešu
 
 [module]
 cpu = "Procesors"
@@ -53,17 +53,7 @@ start_with_windows = "Palaist kopā ar Windows"
 task_manager = "Uzdevumu pārvaldnieks"
 open_config = "Atvērt konfigurācijas failu"
 reload_config = "Pārlādēt konfigurāciju"
-about = "Par winstats"
-check_updates = "Meklēt atjauninājumus"
-update_available = "Pieejams atjauninājums: {v}"
-remote = "Attālie datori"
-discovery = "Meklēt aģentus tīklā"
-share = "Koplietot šo datoru tīklā"
-discovery_off = "Ieslēdziet meklēšanu, lai atrastu aģentus"
-no_agents = "Aģenti vēl nav atrasti"
-connect = "Pievienot"
-connected = "Pievienots"
-forget = "Aizmirst"
+about = "Par Windows Stats"
 exit = "Iziet"
 na = "(nav pieejams)"
 small = "Mazs"
@@ -98,9 +88,7 @@ load = "Noslodze"
 system = "Sistēma"
 user = "Lietotājs"
 idle = "Dīkstāve"
-load_avg = "Vidējā slodze"
 clock = "Takts frekvence"
-offline = "bezsaistē"
 sockets = "Ligzdas"
 p_cores = "P kodoli ({n})"
 e_cores = "E kodoli ({n})"
@@ -166,14 +154,3 @@ na = "nav"
 [about]
 version = "Versija {v}"
 license = "MIT licence"
-
-[update]
-title = "winstats atjauninājums"
-latest = "winstats {v} ir jaunākā versija."
-available = "Pieejams winstats {v} (jums ir {cur}). Atvērt lejupielādes lapu?"
-failed = "Neizdevās meklēt atjauninājumus: {err}"
-
-[remote]
-online = "tiešsaistē"
-offline = "bezsaistē"
-found = "atrasts"

@@ -1,4 +1,4 @@
-# winstats: magyar
+# Windows Stats: magyar
 
 [module]
 cpu = "Processzor"
@@ -53,17 +53,7 @@ start_with_windows = "Indítás a Windows-zal"
 task_manager = "Feladatkezelő"
 open_config = "Konfigurációs fájl megnyitása"
 reload_config = "Konfiguráció újratöltése"
-about = "A winstats névjegye"
-check_updates = "Frissítések keresése"
-update_available = "Frissítés érhető el: {v}"
-remote = "Távoli gépek"
-discovery = "Ügynökök keresése a hálózaton"
-share = "A gép megosztása a hálózaton"
-discovery_off = "Kapcsold be a keresést az ügynökök megtalálásához"
-no_agents = "Még nincs talált ügynök"
-connect = "Csatlakozás"
-connected = "Csatlakozva"
-forget = "Elfelejt"
+about = "A Windows Stats névjegye"
 exit = "Kilépés"
 na = "(nem elérhető)"
 small = "Kicsi"
@@ -98,9 +88,7 @@ load = "Terhelés"
 system = "Rendszer"
 user = "Felhasználó"
 idle = "Tétlen"
-load_avg = "Átlagos terhelés"
 clock = "Órajel"
-offline = "offline"
 sockets = "Foglalatok"
 p_cores = "P magok ({n})"
 e_cores = "E magok ({n})"
@@ -166,14 +154,3 @@ na = "n/a"
 [about]
 version = "Verzió: {v}"
 license = "MIT licenc"
-
-[update]
-title = "winstats frissítés"
-latest = "A winstats {v} a legújabb verzió."
-available = "Elérhető a winstats {v} (a tiéd: {cur}). Megnyitod a letöltési oldalt?"
-failed = "A frissítések keresése nem sikerült: {err}"
-
-[remote]
-online = "online"
-offline = "offline"
-found = "megtalálva"

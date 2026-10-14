@@ -1,4 +1,4 @@
-# winstats: lietuvių
+# Windows Stats: lietuvių
 
 [module]
 cpu = "Procesorius"
@@ -53,17 +53,7 @@ start_with_windows = "Paleisti kartu su Windows"
 task_manager = "Užduočių tvarkytuvė"
 open_config = "Atidaryti konfigūracijos failą"
 reload_config = "Iš naujo įkelti konfigūraciją"
-about = "Apie winstats"
-check_updates = "Tikrinti, ar yra naujinių"
-update_available = "Yra naujinys: {v}"
-remote = "Nuotoliniai kompiuteriai"
-discovery = "Ieškoti agentų tinkle"
-share = "Bendrinti šį kompiuterį tinkle"
-discovery_off = "Įjunkite paiešką, kad rastumėte agentus"
-no_agents = "Agentų dar nerasta"
-connect = "Prijungti"
-connected = "Prijungta"
-forget = "Pamiršti"
+about = "Apie Windows Stats"
 exit = "Išeiti"
 na = "(nepasiekiama)"
 small = "Mažas"
@@ -98,9 +88,7 @@ load = "Apkrova"
 system = "Sistema"
 user = "Naudotojas"
 idle = "Neveika"
-load_avg = "Vidutinė apkrova"
 clock = "Taktinis dažnis"
-offline = "neprisijungęs"
 sockets = "Lizdai"
 p_cores = "P branduoliai ({n})"
 e_cores = "E branduoliai ({n})"
@@ -166,14 +154,3 @@ na = "nėra"
 [about]
 version = "Versija {v}"
 license = "MIT licencija"
-
-[update]
-title = "winstats naujinys"
-latest = "winstats {v} yra naujausia versija."
-available = "Yra winstats {v} (turite {cur}). Atidaryti atsisiuntimo puslapį?"
-failed = "Nepavyko patikrinti naujinių: {err}"
-
-[remote]
-online = "prisijungęs"
-offline = "neprisijungęs"
-found = "rastas"
