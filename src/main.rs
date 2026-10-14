@@ -10,6 +10,7 @@ mod canvas;
 mod cli;
 mod collector;
 mod config;
+mod dwtext;
 mod i18n;
 mod menu;
 mod metrics;
@@ -18,6 +19,7 @@ mod backdrop;
 mod popup;
 mod procicon;
 mod taskbar;
+mod taskbar_uia;
 mod util;
 mod widgets;
 
@@ -61,6 +63,8 @@ const ZBURST_TICKS: u32 = 14;
 /// re-attached after an Explorer restart
 const TIMER_WATCH: usize = 5;
 const WATCH_MS: u32 = 5000;
+/// auto mode, floating because the taskbar refused the strip: how often embedding is retried
+const EMBED_RETRY: std::time::Duration = std::time::Duration::from_secs(60);
 
 const MENU_EXIT: usize = 1;
 const MENU_CONFIG: usize = 2;
@@ -105,9 +109,25 @@ struct App {
     /// floating mode: the strip is hidden while a full-screen game or presentation runs
     fullscreen_hidden: bool,
     wm_taskbar_created: u32,
+    /// RegisterShellHookWindow notifications (windows created / destroyed: task buttons change)
+    wm_shellhook: u32,
     ticks: u64,
     /// when the last sample arrived, for the watchdog timer
     last_data: std::time::Instant,
+    /// Windows 11: where Explorer's own taskbar items are (UI Automation, its own thread)
+    items: Option<taskbar_uia::Watcher>,
+    /// the taskbar window the watcher reads
+    items_tray: HWND,
+    /// last logged fit (shown widgets / span), to log only changes
+    fit_sig: String,
+    /// floating mode: WinEvent hooks on the taskbar's thread (unhooked when embedding again)
+    hooks: Vec<windows::Win32::UI::Accessibility::HWINEVENTHOOK>,
+    /// floating because Explorer refused the strip as a child window (mode "auto"); embedding is
+    /// tried again every EMBED_RETRY
+    auto_floating: bool,
+    /// consecutive SetParent refusals
+    attach_failures: u32,
+    embed_probe_at: std::time::Instant,
 }
 
 /// A full-screen Direct3D game or a presentation is in front: the shell says so, or the
@@ -180,8 +200,12 @@ fn main() {
         if !util::set_per_monitor_dpi() {
             let _ = SetProcessDPIAware();
         }
-        // single instance
-        let name = wide("Local\\WindowsStats-single-instance");
+        // single instance; a separate settings home (WINDOWS_STATS_HOME, tests) is its own instance
+        let instance = match util::instance_tag() {
+            Some(tag) => format!("Local\\WindowsStats-single-instance-{tag}"),
+            None => "Local\\WindowsStats-single-instance".to_string(),
+        };
+        let name = wide(&instance);
         let _mutex = CreateMutexW(None, false, pcwstr(&name));
         if GetLastError() == ERROR_ALREADY_EXISTS {
             log!("already running");
@@ -202,7 +226,7 @@ fn main() {
     // a top-level (not message-only) window: it has to receive the TaskbarCreated broadcast
     let hidden = unsafe {
         let cls = wide(CLASS_HIDDEN);
-        let title = wide("Windows Stats");
+        let title = wide(&util::hidden_title());
         CreateWindowExW(WS_EX_TOOLWINDOW, pcwstr(&cls), pcwstr(&title), WS_OVERLAPPED, 0, 0, 0, 0, None, None, hinstance, None).expect("hidden window")
     };
     metrics::net::watch(hidden);
@@ -212,6 +236,17 @@ fn main() {
         let m = RegisterWindowMessageW(pcwstr(&s));
         // let the broadcast through even if we run elevated
         let _ = ChangeWindowMessageFilterEx(hidden, m, MSGFLT_ALLOW, None);
+        m
+    };
+
+    // the shell tells this window when top-level windows come and go: the moments the task list
+    // changes width, so the strip is re-fitted without polling Explorer
+    let wm_shellhook = unsafe {
+        let s = wide("SHELLHOOK");
+        let m = RegisterWindowMessageW(pcwstr(&s));
+        if !RegisterShellHookWindow(hidden).as_bool() {
+            log!("RegisterShellHookWindow failed");
+        }
         m
     };
 
@@ -254,8 +289,16 @@ fn main() {
             layout_sig: String::new(),
             fullscreen_hidden: false,
             wm_taskbar_created,
+            wm_shellhook,
             ticks: 0,
             last_data: std::time::Instant::now(),
+            items: None,
+            items_tray: HWND::default(),
+            fit_sig: String::new(),
+            hooks: Vec::new(),
+            auto_floating: false,
+            attach_failures: 0,
+            embed_probe_at: std::time::Instant::now(),
         })
     });
 
@@ -270,16 +313,6 @@ fn main() {
     with_app(|app| app.tick());
     unsafe {
         SetTimer(hidden, TIMER_WATCH, WATCH_MS, None);
-        if floating {
-            SetTimer(hidden, TIMER_ZORDER, 150, None);
-            // react immediately when the taskbar is raised (foreground change or any top-level
-            // z-order change); the timer above is only a fallback
-            use windows::Win32::UI::Accessibility::SetWinEventHook;
-            // system events 1..=9 cover foreground, menu popups and mouse capture; the object
-            // events cover show / reorder / focus / location changes
-            let _ = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_CAPTUREEND, None, Some(shell_event_proc), 0, 0, WINEVENT_OUTOFCONTEXT);
-            let _ = SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_LOCATIONCHANGE, None, Some(shell_event_proc), 0, 0, WINEVENT_OUTOFCONTEXT);
-        }
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).into() {
             let _ = TranslateMessage(&msg);
@@ -331,6 +364,26 @@ impl App {
                     return false;
                 }
             }
+            if self.floating {
+                // a new taskbar (Explorer restarted) runs on a new thread: hook that one
+                self.watch_floating(true);
+            }
+        }
+        // floating only because Explorer refused the strip: try embedding again now and then
+        if self.auto_floating && self.embed_probe_at.elapsed() >= EMBED_RETRY {
+            self.embed_probe_at = std::time::Instant::now();
+            let tray = self.taskbar.as_ref().map(|t| t.tray).unwrap_or_default();
+            if taskbar::can_host_children(tray) {
+                self.go_embedded();
+                return self.ensure_bar();
+            }
+        }
+        // Windows 11 draws its task list in XAML: watch its extent so the strip never covers it
+        // (embedded or floating over it)
+        let tray = self.taskbar.as_ref().map(|t| t.tray).unwrap_or_default();
+        if util::is_windows11() && (self.items.is_none() || self.items_tray != tray) {
+            self.items = Some(taskbar_uia::Watcher::start(self.hidden, tray));
+            self.items_tray = tray;
         }
         let alive = unsafe { IsWindow(self.bar).as_bool() };
         // floating: the strip is a top-level window over the taskbar, there is no parent to check
@@ -368,11 +421,85 @@ impl App {
             self.bar = bar;
             let tb = self.taskbar.as_ref().unwrap();
             if !tb.attach(bar) {
+                unsafe {
+                    let _ = DestroyWindow(bar);
+                }
+                self.bar = HWND::default();
+                self.attach_failures += 1;
+                if self.attach_failures >= 2 && self.cfg.mode != "embedded" {
+                    // newer Windows 11 taskbars do not take child windows of other processes:
+                    // the strip floats over the taskbar instead, in the same place
+                    self.auto_floating = true;
+                    self.go_floating("the taskbar refused the strip as a child window");
+                    return self.ensure_bar();
+                }
                 return false;
             }
-            log!("bar window {:?} attached to taskbar", bar);
+            self.attach_failures = 0;
+            log!("bar window {:?} {}", bar, if self.floating { "floating over the taskbar" } else { "attached to taskbar" });
         }
         true
+    }
+
+    /// From now on the strip is an always-on-top window over the taskbar, in the place it would
+    /// have inside it, kept above the taskbar by shell events and a timer.
+    fn go_floating(&mut self, why: &str) {
+        log!("strip: floating ({why})");
+        unsafe {
+            if IsWindow(self.bar).as_bool() {
+                let _ = DestroyWindow(self.bar);
+            }
+        }
+        self.bar = HWND::default();
+        if let Some(tb) = &self.taskbar {
+            tb.restore();
+        }
+        self.floating = true;
+        self.taskbar = taskbar::find(true);
+        self.watch_floating(true);
+        self.embed_probe_at = std::time::Instant::now();
+    }
+
+    /// The taskbar takes child windows again: back inside it.
+    fn go_embedded(&mut self) {
+        log!("strip: the taskbar hosts the strip again, embedding");
+        unsafe {
+            if IsWindow(self.bar).as_bool() {
+                let _ = DestroyWindow(self.bar);
+            }
+        }
+        self.bar = HWND::default();
+        self.floating = false;
+        self.auto_floating = false;
+        self.attach_failures = 0;
+        self.watch_floating(false);
+        self.taskbar = taskbar::find(false);
+    }
+
+    /// Floating mode: hooks and the z-order timer on (`on`) or off. The hooks only listen to the
+    /// taskbar's own thread, which is what raises the taskbar over the strip (activation, Start),
+    /// so the rest of the system's window traffic never wakes us up.
+    fn watch_floating(&mut self, on: bool) {
+        use windows::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent};
+        unsafe {
+            for h in self.hooks.drain(..) {
+                let _ = UnhookWinEvent(h);
+            }
+            let _ = KillTimer(self.hidden, TIMER_ZORDER);
+            if !on {
+                return;
+            }
+            SetTimer(self.hidden, TIMER_ZORDER, 250, None);
+            let Some(tray) = self.taskbar.as_ref().map(|t| t.tray) else { return };
+            let mut pid = 0u32;
+            let tid = GetWindowThreadProcessId(tray, Some(&mut pid));
+            for (a, b) in [(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_CAPTUREEND), (EVENT_OBJECT_SHOW, EVENT_OBJECT_REORDER)] {
+                let h = SetWinEventHook(a, b, None, Some(shell_event_proc), pid, tid, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+                if !h.is_invalid() {
+                    self.hooks.push(h);
+                }
+            }
+        }
     }
 
     fn is_light(&self) -> bool {
@@ -512,7 +639,9 @@ impl App {
         for w in self.widgets.iter() {
             widths.push(w.width(&mut self.canvas, &theme, &self.metrics));
         }
-        let visible: Vec<(usize, i32)> = widths.iter().cloned().enumerate().filter(|(_, w)| *w > 0).collect();
+        let mut visible: Vec<(usize, i32)> = widths.iter().cloned().enumerate().filter(|(_, w)| *w > 0).collect();
+        // Windows 11 fit: (span index 0 = left / 1 = right, span) the strip goes into
+        let mut fit_span: Option<(usize, (i32, i32))> = None;
         let stretched = |i: usize| vertical && self.cfg.widgets.get(i).map_or(false, |n| self.cfg.stretched.contains(n));
         // cells: (widget index, main-axis start, cross-axis start, width)
         let mut cells: Vec<(usize, i32, i32, i32)> = Vec::with_capacity(visible.len());
@@ -560,6 +689,21 @@ impl App {
             }
             total = if cells.is_empty() { edge * 2 } else { row_y + h + edge };
         } else {
+            // Windows 11: only as many widgets as fit between the task list and the tray (or left
+            // of the task list); the trailing ones wait until there is room again
+            if let Some(occ) = self.items.as_ref().and_then(|w| w.get()) {
+                let spans = taskbar::free_spans(tb.client(), tb.notify_left(), occ, tb.origin_x(), theme.s(4.0));
+                let prefer = if self.cfg.position == "left" { 0 } else { 1 };
+                let ws: Vec<i32> = visible.iter().map(|v| v.1).collect();
+                let (n, span) = taskbar::fit(&ws, edge, gap, spans, prefer);
+                let sig = format!("{n}/{} in {:?}", ws.len(), spans[span]);
+                if sig != self.fit_sig {
+                    log!("fit: {n} of {} widgets, span {:?} ({})", ws.len(), spans[span], if span == 0 { "left" } else { "right" });
+                    self.fit_sig = sig;
+                }
+                visible.truncate(n);
+                fit_span = Some((span, spans[span]));
+            }
             let mut x = edge;
             for (i, w) in &visible {
                 cells.push((*i, x, 0, *w));
@@ -623,7 +767,13 @@ impl App {
         }
 
         let offset = theme.s(self.cfg.offset as f32);
-        let rc = tb.place(self.bar, total, &self.cfg.position, offset);
+        // the span decides the side: the configured one, or the other when only that one has room
+        let (position, span) = match fit_span {
+            Some((0, s)) => ("left", Some(s)),
+            Some((_, s)) => ("right", Some(s)),
+            None => (self.cfg.position.as_str(), None),
+        };
+        let rc = tb.place(self.bar, total, position, offset, span);
         if self.ticks == 1 {
             log!("placed bar at {:?}", rc);
         }
@@ -932,6 +1082,14 @@ unsafe extern "system" fn hidden_wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, l
             }
             LRESULT(0)
         }
+        taskbar_uia::WM_APP_TASKBAR_ITEMS => {
+            with_app(|app| {
+                if !app.fullscreen_hidden {
+                    app.render();
+                }
+            });
+            LRESULT(0)
+        }
         metrics::net::WM_APP_NET => {
             with_app(|app| app.send(Cmd::RefreshNet));
             LRESULT(0)
@@ -985,7 +1143,19 @@ unsafe extern "system" fn hidden_wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, l
             LRESULT(0)
         }
         _ => {
-            let created = with_app(|app| app.wm_taskbar_created).unwrap_or(0);
+            let (created, shellhook) = with_app(|app| (app.wm_taskbar_created, app.wm_shellhook)).unwrap_or((0, 0));
+            if shellhook != 0 && msg == shellhook {
+                // HSHELL_WINDOWCREATED, HSHELL_WINDOWDESTROYED, HSHELL_WINDOWREPLACED: the task list
+                // gains or loses a button
+                if matches!(wparam.0, 1 | 2 | 13) {
+                    with_app(|app| {
+                        if let Some(w) = &app.items {
+                            w.poke();
+                        }
+                    });
+                }
+                return LRESULT(0);
+            }
             if created != 0 && msg == created {
                 log!("TaskbarCreated: explorer restarted, re-attaching");
                 with_app(|app| {

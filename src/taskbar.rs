@@ -135,9 +135,25 @@ impl Taskbar {
         }
     }
 
-    /// Position the strip; `len` is its size along the taskbar. Returns the rect used (taskbar
-    /// client coords).
-    pub fn place(&self, hwnd: HWND, len: i32, position: &str, offset_px: i32) -> RECT {
+    /// Left edge of the notification area in taskbar client coords (the right end of the room
+    /// the strip may use on a horizontal taskbar).
+    pub fn notify_left(&self) -> i32 {
+        self.notify.and_then(|n| child_rect(self.tray, n)).map(|n| n.left).unwrap_or_else(|| self.client().right)
+    }
+
+    /// Screen x of the taskbar's client origin (to bring UI Automation rects into client coords).
+    pub fn origin_x(&self) -> i32 {
+        let mut pt = POINT { x: 0, y: 0 };
+        unsafe {
+            let _ = windows::Win32::Graphics::Gdi::ClientToScreen(self.tray, &mut pt);
+        }
+        pt.x
+    }
+
+    /// Position the strip; `len` is its size along the taskbar. `span` is the stretch of the
+    /// taskbar (client x, start..end) Explorer's own items leave free, when known: the strip sits
+    /// at its right end ("right") or left end ("left"). Returns the rect used (client coords).
+    pub fn place(&self, hwnd: HWND, len: i32, position: &str, offset_px: i32, span: Option<(i32, i32)>) -> RECT {
         let rc = self.client();
         let notify = self.notify.and_then(|n| child_rect(self.tray, n));
         if self.vertical() {
@@ -145,9 +161,11 @@ impl Taskbar {
         }
         let h = rc.bottom - rc.top;
         let width = len;
-        let x = match position {
-            "left" => rc.left + offset_px,
-            _ => {
+        let x = match (position, span) {
+            ("left", Some((a, _))) => a + offset_px,
+            ("left", None) => rc.left + offset_px,
+            (_, Some((_, b))) => b - width - offset_px,
+            (_, None) => {
                 let anchor = notify.map(|n| n.left).unwrap_or(rc.right);
                 anchor - width - offset_px
             }
@@ -230,5 +248,89 @@ impl Taskbar {
                 let _ = MoveWindow(rebar, orig.left, orig.top, orig.right - orig.left, orig.bottom - orig.top, true);
             }
         }
+    }
+}
+
+/// Whether the taskbar takes a child window from this process right now: a hidden, empty
+/// probe window is made its child and destroyed again at once.
+pub fn can_host_children(tray: HWND) -> bool {
+    unsafe {
+        let cls = wide("STATIC");
+        let Ok(probe) = CreateWindowExW(WS_EX_TOOLWINDOW, pcwstr(&cls), PCWSTR::null(), WS_POPUP, 0, 0, 1, 1, None, None, None, None) else { return false };
+        SetWindowLongPtrW(probe, GWL_STYLE, WS_CHILD.0 as _);
+        let ok = SetParent(probe, tray).is_ok();
+        let _ = DestroyWindow(probe);
+        ok
+    }
+}
+
+/// Free stretches of a horizontal Windows 11 taskbar in client x: (left of the task list, right
+/// of it up to the notification area). `occ` is in screen coordinates, `origin_x` the screen x
+/// of the client origin, `margin` the air kept next to Explorer's buttons.
+pub fn free_spans(client: RECT, notify_left: i32, occ: crate::taskbar_uia::Occupied, origin_x: i32, margin: i32) -> [(i32, i32); 2] {
+    let left_start = occ.left_end.map(|x| x - origin_x + margin).unwrap_or(client.left).max(client.left);
+    match occ.middle {
+        Some((a, b)) => {
+            let (a, b) = (a - origin_x, b - origin_x);
+            [(left_start, (a - margin).max(left_start)), ((b + margin).min(notify_left), notify_left)]
+        }
+        None => [(left_start, notify_left), (left_start, notify_left)],
+    }
+}
+
+/// How many of the widgets (natural widths, in order) fit, and in which span (index into
+/// `spans`): the preferred span when everything fits there, else the other one when everything
+/// fits there, else the roomier one with the trailing widgets left out.
+pub fn fit(widths: &[i32], edge: i32, gap: i32, spans: [(i32, i32); 2], prefer: usize) -> (usize, usize) {
+    let room = |i: usize| (spans[i].1 - spans[i].0).max(0);
+    let need = |n: usize| if n == 0 { 0 } else { edge * 2 + widths[..n].iter().sum::<i32>() + gap * (n as i32 - 1) };
+    let all = widths.len();
+    let other = 1 - prefer;
+    if need(all) <= room(prefer) {
+        return (all, prefer);
+    }
+    if need(all) <= room(other) {
+        return (all, other);
+    }
+    let span = if room(other) > room(prefer) { other } else { prefer };
+    let mut n = all;
+    while n > 0 && need(n) > room(span) {
+        n -= 1;
+    }
+    (n, span)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::taskbar_uia::Occupied;
+
+    const CLIENT: RECT = RECT { left: 0, top: 0, right: 1920, bottom: 48 };
+
+    #[test]
+    fn spans_around_a_centred_task_list() {
+        let occ = Occupied { left_end: Some(170), middle: Some((674, 1247)) };
+        let s = free_spans(CLIENT, 1523, occ, 0, 6);
+        assert_eq!(s, [(176, 668), (1253, 1523)]);
+        // nothing known: the whole width up to the tray, either way
+        assert_eq!(free_spans(CLIENT, 1523, Occupied::default(), 0, 6), [(0, 1523), (0, 1523)]);
+        // a task list that reaches the tray leaves nothing on the right
+        let full = Occupied { left_end: None, middle: Some((100, 1600)) };
+        assert_eq!(free_spans(CLIENT, 1523, full, 0, 6)[1], (1523, 1523));
+    }
+
+    #[test]
+    fn fitting() {
+        let widths = [83, 42, 27, 27, 55, 55];
+        // total = 12 + 289 + 25 = 326
+        assert_eq!(fit(&widths, 6, 5, [(0, 400), (1000, 1400)], 1), (6, 1));
+        // the right side is too narrow, the left fits all
+        assert_eq!(fit(&widths, 6, 5, [(0, 400), (1300, 1500)], 1), (6, 0));
+        // neither fits all: the roomier one, trailing widgets dropped
+        let (n, span) = fit(&widths, 6, 5, [(0, 150), (1300, 1500)], 1);
+        assert_eq!(span, 1);
+        assert!(n < 6 && n > 0);
+        // no room at all
+        assert_eq!(fit(&widths, 6, 5, [(0, 0), (10, 10)], 1).0, 0);
     }
 }

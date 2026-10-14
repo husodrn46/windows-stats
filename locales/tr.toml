@@ -156,3 +156,8 @@ na = "yok"
 based_on = "{author} tarafından geliştirilen winstats tabanlıdır (MIT)"
 version = "Sürüm {v}"
 license = "MIT Lisansı"
+
+[units]
+per_second = "/sn"
+hours_minutes = "{h} sa {m} dk"
+minutes = "{m} dk"

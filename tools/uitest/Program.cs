@@ -38,6 +38,9 @@ static class UiTest {
             case "window": return Window(a[1]);
             case "children": return Children(a.Length > 1 ? a[1] : "Shell_TrayWnd");
             case "printwindow": return PrintWin(a[1], a[2]);
+            case "info": return Info(a[1]);
+            case "parenttest": return ParentTest();
+            case "zorder": return ZOrder(a.Length > 1 ? int.Parse(a[1]) : 25);
             default: Console.Error.WriteLine("usage: shot|click|move|drag|window|children"); return 2;
         }
     }
@@ -49,6 +52,78 @@ static class UiTest {
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
 
     [DllImport("user32.dll")] static extern bool PrintWindow(IntPtr h, IntPtr dc, uint flags);
+    [DllImport("user32.dll")] static extern IntPtr GetWindowDpiAwarenessContext(IntPtr h);
+    [DllImport("user32.dll")] static extern int GetAwarenessFromDpiAwarenessContext(IntPtr c);
+    [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr h);
+    [DllImport("user32.dll")] static extern int GetWindowDpiHostingBehavior(IntPtr h);
+    [DllImport("user32.dll")] static extern bool IsHungAppWindow(IntPtr h);
+    delegate bool EnumProc(IntPtr h, IntPtr l);
+    [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr parent, EnumProc f, IntPtr l);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)] static extern IntPtr CreateWindowExW(uint ex, string cls, string name, uint style, int x, int y, int w, int h, IntPtr parent, IntPtr menu, IntPtr inst, IntPtr param);
+    [DllImport("user32.dll", SetLastError = true)] static extern IntPtr SetParent(IntPtr child, IntPtr parent);
+    [DllImport("user32.dll", SetLastError = true)] static extern int SetWindowLongW(IntPtr h, int i, int v);
+    [DllImport("user32.dll")] static extern bool DestroyWindow(IntPtr h);
+    [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr h);
+
+    /// Can a window of this process be made a child of the taskbar right now? Creates a plain
+    /// hidden STATIC window, tries SetParent, reports the error and destroys the window.
+    static int ParentTest() {
+        IntPtr tray = FindWindowExW(IntPtr.Zero, IntPtr.Zero, "Shell_TrayWnd", null);
+        foreach (var (name, ex, styleFirst) in new[] { ("popup, style first", 0u, true), ("popup, parent first", 0u, false), ("layered, style first", 0x00080000u, true) }) {
+            IntPtr w = CreateWindowExW(ex | 0x80 /* TOOLWINDOW */, "STATIC", "uitest", 0x80000000 /* WS_POPUP */, 0, 0, 10, 10, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            if (styleFirst) SetWindowLongW(w, -16, 0x40000000 /* WS_CHILD */);
+            IntPtr r = SetParent(w, tray);
+            int err = Marshal.GetLastWin32Error();
+            Console.WriteLine($"{name}: SetParent -> {(r == IntPtr.Zero ? "FAILED" : "ok")} err={err} parent={GetParent(w).ToInt64():X}");
+            DestroyWindow(w);
+        }
+        return 0;
+    }
+
+    [DllImport("user32.dll")] static extern IntPtr GetTopWindow(IntPtr h);
+    [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr h, int attr, out int v, int size);
+
+    /// The first `n` visible top-level windows from the top of the z-order (class, ex style,
+    /// rect, DWM cloaked state).
+    static int ZOrder(int n) {
+        int i = 0;
+        for (IntPtr h = GetTopWindow(IntPtr.Zero); h != IntPtr.Zero && i < n; h = GetWindow(h, 2)) {
+            if (!IsWindowVisible(h)) continue;
+            var sb = new StringBuilder(128);
+            GetClassNameW(h, sb, 128);
+            GetWindowRect(h, out RECT r);
+            DwmGetWindowAttribute(h, 14 /* DWMWA_CLOAKED */, out int cloaked, 4);
+            Console.WriteLine($"{i,2} {h.ToInt64():X8} ex={GetWindowLongW(h, -20):X8} cloaked={cloaked} [{r.l},{r.t},{r.r},{r.b}] {sb}");
+            i++;
+        }
+        return 0;
+    }
+
+    /// Every top-level window of a class with DPI awareness, hosting behaviour, styles, children.
+    static int Info(string cls) {
+        IntPtr h = IntPtr.Zero;
+        int n = 0;
+        while ((h = FindWindowExW(IntPtr.Zero, h, cls, null)) != IntPtr.Zero) {
+            n++;
+            GetWindowRect(h, out RECT r);
+            GetWindowThreadProcessId(h, out uint pid);
+            int aw = GetAwarenessFromDpiAwarenessContext(GetWindowDpiAwarenessContext(h));
+            int kids = 0;
+            EnumChildWindows(h, (c, l) => {
+                kids++;
+                var sb = new StringBuilder(128);
+                GetClassNameW(c, sb, 128);
+                GetWindowRect(c, out RECT cr);
+                GetWindowThreadProcessId(c, out uint cpid);
+                Console.WriteLine($"   child {c.ToInt64():X8} pid={cpid} vis={IsWindowVisible(c)} [{cr.l},{cr.t},{cr.r},{cr.b}] {sb}");
+                return true;
+            }, IntPtr.Zero);
+            Console.WriteLine($"{h.ToInt64():X8} pid={pid} vis={IsWindowVisible(h)} hung={IsHungAppWindow(h)} awareness={aw} dpi={GetDpiForWindow(h)} hosting={GetWindowDpiHostingBehavior(h)} style={GetWindowLongW(h, -16):X8} ex={GetWindowLongW(h, -20):X8} [{r.l},{r.t},{r.r},{r.b}] gw_child={GetWindow(h, 5).ToInt64():X} enum_children={kids}");
+        }
+        if (n == 0) Console.WriteLine("none");
+        return n > 0 ? 0 : 1;
+    }
 
     /// Window content as the window itself renders it (PW_RENDERFULLCONTENT), alpha dropped.
     static int PrintWin(string hex, string outPath) {

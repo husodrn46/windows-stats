@@ -122,6 +122,24 @@ pub fn config_dir() -> std::path::PathBuf {
     base.join("WindowsStats")
 }
 
+/// A separate settings home (`WINDOWS_STATS_HOME`, used by tests) runs as its own instance:
+/// this tag goes into the single-instance mutex and the hidden window's title. None normally.
+pub fn instance_tag() -> Option<String> {
+    use std::hash::{Hash, Hasher};
+    let home = std::env::var_os("WINDOWS_STATS_HOME")?;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    home.hash(&mut h);
+    Some(format!("{:016x}", h.finish()))
+}
+
+/// Title of the hidden window, which `--quit` looks for.
+pub fn hidden_title() -> String {
+    match instance_tag() {
+        Some(tag) => format!("Windows Stats [{tag}]"),
+        None => "Windows Stats".to_string(),
+    }
+}
+
 pub fn log_path() -> std::path::PathBuf {
     config_dir().join("WindowsStats.log")
 }
@@ -160,38 +178,46 @@ pub fn format_decimal(v: f64, decimals: usize) -> String {
     if crate::i18n::decimal_comma() { s.replace('.', ",") } else { s }
 }
 
+/// "12 KB/s" / "1.5 MB/s"; in Turkish "12 KB/sn", "1,5 MB/sn" (unit and decimal separator
+/// follow the UI language).
 pub fn format_bytes_rate(bps: f64) -> String {
     let b = bps.max(0.0);
-    if b < 1024.0 {
-        format!("{:.0} B/s", b)
-    } else if b < 1024.0 * 1024.0 {
-        format!("{:.0} KB/s", b / 1024.0)
-    } else if b < 1024.0 * 1024.0 * 1024.0 {
-        format!("{:.1} MB/s", b / 1024.0 / 1024.0)
+    let ps = crate::i18n::t("units.per_second");
+    const K: f64 = 1024.0;
+    if b < K {
+        format!("{} B{ps}", format_decimal(b, 0))
+    } else if b < K * K {
+        format!("{} KB{ps}", format_decimal(b / K, 0))
+    } else if b < K * K * K {
+        format!("{} MB{ps}", format_decimal(b / K / K, 1))
     } else {
-        format!("{:.2} GB/s", b / 1024.0 / 1024.0 / 1024.0)
+        format!("{} GB{ps}", format_decimal(b / K / K / K, 2))
     }
 }
-
 
 pub fn format_bytes(b: u64) -> String {
     let f = b as f64;
     const K: f64 = 1024.0;
     if f < K * K {
-        format!("{:.0} KB", f / K)
+        format!("{} KB", format_decimal(f / K, 0))
     } else if f < K * K * K {
-        format!("{:.0} MB", f / K / K)
+        format!("{} MB", format_decimal(f / K / K, 0))
     } else if f < K * K * K * K {
-        format!("{:.1} GB", f / K / K / K)
+        format!("{} GB", format_decimal(f / K / K / K, 1))
     } else {
-        format!("{:.2} TB", f / K / K / K / K)
+        format!("{} TB", format_decimal(f / K / K / K / K, 2))
     }
 }
 
+/// "2 h 05 min" / "2 sa 05 dk", "45 min" / "45 dk".
 pub fn format_duration(secs: u32) -> String {
     let h = secs / 3600;
     let m = (secs % 3600) / 60;
-    if h > 0 { format!("{h}h {m:02}m") } else { format!("{m} min") }
+    if h > 0 {
+        crate::i18n::tf("units.hours_minutes", &[("h", &h.to_string()), ("m", &format!("{m:02}"))])
+    } else {
+        crate::i18n::tf("units.minutes", &[("m", &m.to_string())])
+    }
 }
 
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -228,11 +254,11 @@ pub fn format_size(b: u64) -> String {
     let f = b as f64;
     const K: f64 = 1024.0;
     if f < K * K * K {
-        format!("{:.0} MB", f / K / K)
+        format!("{} MB", format_decimal(f / K / K, 0))
     } else if f < K * K * K * K {
-        format!("{:.2} GB", f / K / K / K)
+        format!("{} GB", format_decimal(f / K / K / K, 2))
     } else {
-        format!("{:.2} TB", f / K / K / K / K)
+        format!("{} TB", format_decimal(f / K / K / K / K, 2))
     }
 }
 
@@ -271,5 +297,23 @@ pub fn set_clipboard(text: &str) -> bool {
         }
         let _ = CloseClipboard();
         ok
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn units_follow_the_language() {
+        crate::i18n::set_language("tr");
+        assert_eq!(format_bytes_rate(1536.0 * 1024.0), "1,5 MB/sn");
+        assert_eq!(format_bytes_rate(12.0 * 1024.0), "12 KB/sn");
+        assert_eq!(format_bytes(3 * 1024 * 1024 * 1024 / 2), "1,5 GB");
+        assert_eq!(format_duration(2 * 3600 + 5 * 60), "2 sa 05 dk");
+        assert_eq!(format_duration(45 * 60), "45 dk");
+        crate::i18n::set_language("en");
+        assert_eq!(format_bytes_rate(1536.0 * 1024.0), "1.5 MB/s");
+        assert_eq!(format_duration(45 * 60), "45 min");
     }
 }

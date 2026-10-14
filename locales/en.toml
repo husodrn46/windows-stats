@@ -157,3 +157,8 @@ na = "n/a"
 based_on = "Based on winstats by {author} (MIT)"
 version = "Version {v}"
 license = "MIT License"
+
+[units]
+per_second = "/s"
+hours_minutes = "{h} h {m} min"
+minutes = "{m} min"

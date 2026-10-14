@@ -25,6 +25,39 @@ pub fn run(args: &[String]) -> bool {
             dump(samples, interval);
             true
         }
+        "--taskbar-items" => {
+            // diagnostics: what UI Automation reports below the taskbar (class, name, id, rect)
+            attach_console();
+            let tray = unsafe { FindWindowW(windows::core::w!("Shell_TrayWnd"), windows::core::PCWSTR::null()) }.unwrap_or_default();
+            let t = tray.0 as isize;
+            match crate::taskbar_uia::with_com(move || crate::taskbar_uia::all_items(windows::Win32::Foundation::HWND(t as *mut _)).map_err(|e| e.to_string())) {
+                Some(Ok(items)) => {
+                    for it in &items {
+                        println!("{:<48} [{:>5},{:>5},{:>5},{:>5}] id={} name={}", it.class, it.rect.left, it.rect.top, it.rect.right, it.rect.bottom, it.id, it.name);
+                    }
+                    println!("occupied (all items): {:?}", crate::taskbar_uia::occupied(&items));
+                    // the cached query the watcher uses, timed
+                    let timed = crate::taskbar_uia::with_com(move || {
+                        let q = crate::taskbar_uia::Query::new().map_err(|e| e.to_string())?;
+                        let t0 = std::time::Instant::now();
+                        let n = 10;
+                        let mut last = Vec::new();
+                        for _ in 0..n {
+                            last = q.items(windows::Win32::Foundation::HWND(t as *mut _)).map_err(|e| e.to_string())?;
+                        }
+                        Ok::<_, String>((t0.elapsed().as_secs_f64() * 1000.0 / n as f64, last))
+                    });
+                    match timed {
+                        Some(Ok((ms, items))) => println!("cached query: {} items, {ms:.1} ms per query, occupied {:?}", items.len(), crate::taskbar_uia::occupied(&items)),
+                        Some(Err(e)) => println!("cached query failed: {e}"),
+                        None => println!("cached query thread failed"),
+                    }
+                }
+                Some(Err(e)) => println!("UI Automation failed: {e}"),
+                None => println!("UI Automation thread failed"),
+            }
+            true
+        }
         "--quit" => {
             attach_console();
             let found = quit_running();
@@ -57,11 +90,13 @@ fn attach_console() {
     }
 }
 
-/// Post WM_CLOSE to the hidden window of a running instance.
+/// Post WM_CLOSE to the hidden window of the running instance (the one using the same settings
+/// home as this process).
 pub fn quit_running() -> bool {
     let cls = wide(crate::CLASS_HIDDEN);
+    let title = wide(&crate::util::hidden_title());
     unsafe {
-        match FindWindowW(pcwstr(&cls), windows::core::PCWSTR::null()) {
+        match FindWindowW(pcwstr(&cls), pcwstr(&title)) {
             Ok(h) if !h.0.is_null() => PostMessageW(h, WM_CLOSE, WPARAM(0), LPARAM(0)).is_ok(),
             _ => false,
         }

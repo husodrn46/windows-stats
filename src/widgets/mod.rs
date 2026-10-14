@@ -102,6 +102,18 @@ impl Theme {
         }
     }
 
+    /// Width of chart lines: a little over one pixel, crisp at every scale.
+    pub fn line_w(&self) -> f32 {
+        (1.25 * self.scale).max(1.0)
+    }
+
+    /// The frame of a chart or of the core bars: a faint rounded panel instead of a hard outline.
+    pub fn chart_frame(&self, c: &mut Canvas, x: i32, y: i32, w: i32, h: i32) {
+        let r = self.s(3.0) as f32;
+        c.fill_round_rect(x, y, w, h, r, self.text.alpha(if self.light { 0.05 } else { 0.06 }));
+        c.stroke_round_rect_r(x, y, w, h, r, self.text.alpha(if self.light { 0.22 } else { 0.20 }));
+    }
+
     /// Colour for a text value of a module.
     pub fn value_color(&self, k: Kind, v: f32) -> Color {
         match self.mode(k) {
@@ -329,7 +341,7 @@ fn draw_label(c: &mut Canvas, x: i32, y: i32, t: &Theme, label: &str) {
     if !t.labels {
         return;
     }
-    let f = t.font_fixed(6.5, FW_SEMIBOLD);
+    let f = t.font_fixed(7.0, FW_SEMIBOLD);
     let chars: Vec<char> = label.chars().take(3).collect();
     let slot = t.inner_h as f32 / chars.len().max(1) as f32;
     for (i, ch) in chars.iter().enumerate() {
@@ -409,7 +421,7 @@ impl Widget for CpuBars {
         let n = m.cpu_cores.len().max(1);
         let (bw, gap, pad) = bar_geometry(t, n);
         let box_w = self.width(c, t, m) - label_width(t);
-        c.stroke_round_rect(x, y, box_w, t.inner_h, t.dim.alpha(0.7));
+        t.chart_frame(c, x, y, box_w, t.inner_h);
         let bottom = y + t.inner_h - 1 - pad;
         let max_h = (t.inner_h - 2 - pad * 2) as f32;
         let top_class = m.cpu_classes.iter().cloned().max().unwrap_or(0);
@@ -451,10 +463,11 @@ impl Widget for Line {
         draw_label(c, x, y, t, &t.label(self.0));
         let x = x + label_width(t);
         let w = t.s(t.chart_w);
-        c.stroke_round_rect(x, y, w, t.inner_h, t.dim.alpha(0.7));
+        t.chart_frame(c, x, y, w, t.inner_h);
         let vals = history(self.0, m);
         let col = t.chart_color(self.0, vals.last().cloned().unwrap_or(0.0));
-        c.line_chart(x + 1, y + 1, w - 2, t.inner_h - 2, &vals, col, col.alpha(0.35));
+        let pad = t.s(1.0);
+        c.area_chart(x + pad, y + pad, w - pad * 2, t.inner_h - pad * 2, &vals, col, col.alpha(0.45), t.line_w(), false);
     }
 }
 
@@ -476,9 +489,9 @@ impl Widget for Mini {
     fn width(&self, c: &mut Canvas, t: &Theme, m: &MetricsData) -> i32 {
         let label = t.label(self.0);
         let v = value(self.0, m);
-        let lw = c.measure_text(&label, t.font(7.0, FW_NORMAL)).0;
-        let vw = c.measure_text(&pct_text(v), t.font(10.0, FW_SEMIBOLD)).0;
-        let reserve = c.measure_text("100%", t.font(10.0, FW_SEMIBOLD)).0;
+        let lw = c.measure_text(&label, t.font(7.5, FW_NORMAL)).0;
+        let vw = c.measure_text(&pct_text(v), t.font(11.0, FW_SEMIBOLD)).0;
+        let reserve = c.measure_text("100%", t.font(11.0, FW_SEMIBOLD)).0;
         lw.max(vw).max(reserve)
     }
 
@@ -486,8 +499,8 @@ impl Widget for Mini {
         let label = t.label(self.0);
         let v = value(self.0, m);
         let w = self.width(c, t, m);
-        let lf = t.font(7.0, FW_NORMAL);
-        let vf = t.font(10.0, FW_SEMIBOLD);
+        let lf = t.font(7.5, FW_NORMAL);
+        let vf = t.font(11.0, FW_SEMIBOLD);
         let (lw, lh) = c.measure_text(&label, lf);
         let text = pct_text(v);
         let (vw, vh) = c.measure_text(&text, vf);
@@ -554,8 +567,8 @@ impl Widget for Speed {
         self.0
     }
     fn width(&self, c: &mut Canvas, t: &Theme, m: &MetricsData) -> i32 {
-        let f = t.font(8.5, FW_NORMAL);
-        let reserve = c.measure_text("88.8 MB/s", f).0;
+        let f = t.font(9.0, FW_NORMAL);
+        let reserve = c.measure_text(&format_bytes_rate(88.8 * 1024.0 * 1024.0), f).0;
         let cur = pair_now(self.0, m, t).iter().map(|(v, _)| c.measure_text(&format_bytes_rate(*v), f).0).max().unwrap_or(0);
         label_width(t) + t.s(4.0) + t.s(3.0) + reserve.max(cur)
     }
@@ -563,7 +576,7 @@ impl Widget for Speed {
     fn draw(&self, c: &mut Canvas, x: i32, y: i32, t: &Theme, m: &MetricsData) {
         draw_label(c, x, y, t, &t.label(self.0));
         let x = x + label_width(t);
-        let f = t.font(8.5, FW_NORMAL);
+        let f = t.font(9.0, FW_NORMAL);
         let rows = pair_now(self.0, m, t);
         let row_h = t.inner_h as f32 / 2.0;
         let dot_r = t.s(4.0) as f32 / 2.0;
@@ -594,8 +607,8 @@ impl Widget for MemText {
         Kind::Mem
     }
     fn width(&self, c: &mut Canvas, t: &Theme, m: &MetricsData) -> i32 {
-        let f = t.font(9.5, FW_SEMIBOLD);
-        let reserve = c.measure_text("88.88 GB", f).0;
+        let f = t.font(10.0, FW_SEMIBOLD);
+        let reserve = c.measure_text(&format_size(88 * 1024 * 1024 * 1024 + 900 * 1024 * 1024), f).0;
         let cur = Self::rows(m).iter().map(|v| c.measure_text(v, f).0).max().unwrap_or(0);
         label_width(t) + reserve.max(cur)
     }
@@ -603,7 +616,7 @@ impl Widget for MemText {
     fn draw(&self, c: &mut Canvas, x: i32, y: i32, t: &Theme, m: &MetricsData) {
         draw_label(c, x, y, t, "RAM");
         let x = x + label_width(t);
-        let f = t.font(9.5, FW_SEMIBOLD);
+        let f = t.font(10.0, FW_SEMIBOLD);
         let w = self.width(c, t, m) - label_width(t);
         let row_h = t.inner_h as f32 / 2.0;
         for (i, v) in Self::rows(m).iter().enumerate() {
@@ -631,13 +644,12 @@ impl Widget for DualChart {
         draw_label(c, x, y, t, &t.label(self.0));
         let x = x + label_width(t);
         let w = t.s(t.chart_w);
-        c.stroke_round_rect(x, y, w, t.inner_h, t.dim.alpha(0.7));
+        t.chart_frame(c, x, y, w, t.inner_h);
+        // Stats' network chart: upload / write above the middle, download / read below,
+        // each half scaled to its own peak
         let (a, b, ca, cb, floor) = pair_history(self.0, m, t);
-        let max = a.iter().chain(b.iter()).cloned().fold(floor, f32::max);
-        let na: Vec<f32> = a.iter().map(|v| v / max).collect();
-        let nb: Vec<f32> = b.iter().map(|v| v / max).collect();
-        c.line_chart(x + 1, y + 1, w - 2, t.inner_h - 2, &na, ca, ca.alpha(0.35));
-        c.line_chart(x + 1, y + 1, w - 2, t.inner_h - 2, &nb, cb, cb.alpha(0.35));
+        let pad = t.s(1.0);
+        c.mirror_chart(x + pad, y + pad, w - pad * 2, t.inner_h - pad * 2, &b, &a, cb, ca, floor, t.line_w());
     }
 }
 
@@ -653,13 +665,13 @@ impl Widget for BatteryWidget {
         if m.battery.is_none() {
             return 0;
         }
-        let f = t.font(9.0, FW_NORMAL);
+        let f = t.font(9.5, FW_NORMAL);
         c.measure_text("100%", f).0 + t.s(3.0) + t.s(22.0)
     }
 
     fn draw(&self, c: &mut Canvas, x: i32, y: i32, t: &Theme, m: &MetricsData) {
         let Some(b) = m.battery else { return };
-        let f = t.font(9.0, FW_NORMAL);
+        let f = t.font(9.5, FW_NORMAL);
         let text = format!("{}%", (b.level * 100.0).round() as i32);
         let (tw, th) = c.measure_text(&text, f);
         c.draw_text(&text, x, y + (t.inner_h - th) / 2, f, t.text);

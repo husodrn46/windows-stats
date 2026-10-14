@@ -1,4 +1,4 @@
-//! Premultiplied BGRA framebuffer with simple primitives, GDI-rendered text,
+//! Premultiplied BGRA framebuffer with simple primitives, DirectWrite text (GDI as a fallback),
 //! and presentation through UpdateLayeredWindow (per-pixel alpha).
 
 use crate::util::{pcwstr, wide};
@@ -58,10 +58,13 @@ pub fn usage_color(v: f32, base: Color) -> Color {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct FontSpec {
-    pub px: i32,
-    pub weight: i32,
+pub use crate::dwtext::FontSpec;
+use std::cell::RefCell;
+
+thread_local! {
+    /// One DirectWrite engine (and glyph cache) for every canvas of the UI thread; None when
+    /// DirectWrite is unavailable, then each canvas falls back to GDI.
+    static DW: RefCell<Option<crate::dwtext::TextEngine>> = RefCell::new(crate::dwtext::TextEngine::new());
 }
 
 pub const FW_NORMAL: i32 = 400;
@@ -247,6 +250,102 @@ impl Canvas {
                 }
             }
             prev_top = Some(top);
+        }
+    }
+
+    /// Area chart in the style of Stats: an antialiased line over a fill that fades towards the
+    /// baseline. `values` are 0..1, right-aligned (newest at the right edge), resampled to the
+    /// columns like `line_chart`. `fill` carries the colour and opacity right under the line;
+    /// at the baseline a fifth of it is left. With `down` the chart hangs from the top edge
+    /// (the lower half of a mirrored chart).
+    pub fn area_chart(&mut self, x: i32, y: i32, w: i32, h: i32, values: &[f32], line: Color, fill: Color, line_w: f32, down: bool) {
+        if w <= 1 || h <= 0 || values.is_empty() {
+            return;
+        }
+        let pts = chart_points(x, y, w, h, values, down);
+        if pts.is_empty() {
+            return;
+        }
+        let base = if down { y as f32 } else { (y + h) as f32 };
+        // fill, column by column, from the line to the baseline
+        for &(px, py) in &pts {
+            let col = (px - 0.5).round() as i32;
+            let span = (base - py).abs().max(1.0);
+            let (from, to) = if down { (y, py.ceil() as i32) } else { (py.floor() as i32, y + h) };
+            for yy in from.max(y)..to.min(y + h) {
+                let (top, bot) = (yy as f32, yy as f32 + 1.0);
+                // part of the pixel on the filled side of the line
+                let cov = if down { (py - top).clamp(0.0, 1.0) } else { (bot - py).clamp(0.0, 1.0) };
+                let dist = if down { (py - bot).max(0.0) } else { (top - py).max(0.0) };
+                let fade = 1.0 - 0.8 * (dist / span).clamp(0.0, 1.0);
+                if cov > 0.0 {
+                    self.blend_px(col, yy, fill, cov * fade);
+                }
+            }
+        }
+        self.polyline(&pts, line, line_w, y, y + h);
+    }
+
+    /// Mirrored chart for a pair of rates (Stats' network chart): `up` grows upwards from the
+    /// middle, `down` downwards, each half scaled to its own maximum (at least `floor`).
+    pub fn mirror_chart(&mut self, x: i32, y: i32, w: i32, h: i32, up: &[f32], down: &[f32], cu: Color, cd: Color, floor: f32, line_w: f32) {
+        let mid = h / 2;
+        let norm = |v: &[f32]| -> Vec<f32> {
+            let max = v.iter().cloned().fold(floor, f32::max);
+            v.iter().map(|x| x / max).collect()
+        };
+        self.area_chart(x, y, w, mid, &norm(up), cu, cu.alpha(0.45), line_w, false);
+        self.area_chart(x, y + h - mid, w, mid, &norm(down), cd, cd.alpha(0.45), line_w, true);
+    }
+
+    /// Antialiased polyline through `pts` (pixel-centre x, y), clipped to rows `y0..y1`: each
+    /// pixel takes its distance to the nearest segment, so joints are not drawn twice.
+    fn polyline(&mut self, pts: &[(f32, f32)], c: Color, width: f32, y0: i32, y1: i32) {
+        let hw = width / 2.0;
+        if pts.len() == 1 {
+            let (px, py) = pts[0];
+            self.draw_line(px - 0.5, py, px + 0.5, py, width, c);
+            return;
+        }
+        let x_min = (pts[0].0 - hw - 1.0).floor() as i32;
+        let x_max = (pts[pts.len() - 1].0 + hw + 1.0).ceil() as i32;
+        let mut seg = 0usize;
+        for xx in x_min..=x_max {
+            let cx = xx as f32 + 0.5;
+            // segments that can reach this column
+            while seg + 1 < pts.len() - 1 && pts[seg + 1].0 < cx - hw - 1.0 {
+                seg += 1;
+            }
+            let mut lo = f32::MAX;
+            let mut hi = f32::MIN;
+            let mut k = seg;
+            while k + 1 < pts.len() && pts[k].0 <= cx + hw + 1.0 {
+                lo = lo.min(pts[k].1.min(pts[k + 1].1));
+                hi = hi.max(pts[k].1.max(pts[k + 1].1));
+                k += 1;
+            }
+            if lo > hi {
+                continue;
+            }
+            for yy in ((lo - hw - 1.0).floor() as i32).max(y0)..=((hi + hw + 1.0).ceil() as i32).min(y1 - 1) {
+                let cy = yy as f32 + 0.5;
+                let mut d = f32::MAX;
+                let mut k = seg;
+                while k + 1 < pts.len() && pts[k].0 <= cx + hw + 1.0 {
+                    let (ax, ay) = pts[k];
+                    let (bx, by) = pts[k + 1];
+                    let (dx, dy) = (bx - ax, by - ay);
+                    let len2 = dx * dx + dy * dy;
+                    let t = if len2 > 0.0 { (((cx - ax) * dx + (cy - ay) * dy) / len2).clamp(0.0, 1.0) } else { 0.0 };
+                    let (qx, qy) = (ax + dx * t - cx, ay + dy * t - cy);
+                    d = d.min((qx * qx + qy * qy).sqrt());
+                    k += 1;
+                }
+                let cov = (hw + 0.5 - d).clamp(0.0, 1.0);
+                if cov > 0.0 {
+                    self.blend_px(xx, yy, c, cov);
+                }
+            }
         }
     }
 
@@ -454,11 +553,34 @@ impl Canvas {
     }
 
     pub fn measure_text(&mut self, text: &str, font: FontSpec) -> (i32, i32) {
+        if let Some(m) = DW.with(|e| e.borrow_mut().as_mut().map(|e| e.measure(text, font))) {
+            return m;
+        }
         self.text.measure(text, font)
     }
 
-    /// Draw text with its top-left corner at (x, y). Returns the rendered size.
+    /// Draw text with its top-left corner at (x, y). Returns the layout size (advance width,
+    /// line height), the same as `measure_text`.
     pub fn draw_text(&mut self, text: &str, x: i32, y: i32, font: FontSpec, c: Color) -> (i32, i32) {
+        let dw = DW.with(|e| e.borrow_mut().as_mut().map(|e| (e.measure(text, font), e.render(text, font))));
+        if let Some((size, mask)) = dw {
+            if let Some(m) = mask {
+                // coverage -> alpha the way Direct2D shades grayscale text (contrast + gamma)
+                let mut lut = [0f32; 256];
+                for (i, v) in lut.iter_mut().enumerate() {
+                    *v = crate::dwtext::text_alpha(i as f32 / 255.0, c.r, c.g, c.b);
+                }
+                for gy in 0..m.mh {
+                    for gx in 0..m.mw {
+                        let cov = m.cov[(gy * m.mw + gx) as usize];
+                        if cov > 0 {
+                            self.blend_px(x + m.x0 + gx, y + m.y0 + gy, c, lut[cov as usize]);
+                        }
+                    }
+                }
+            }
+            return size;
+        }
         let Some(g) = self.text.render(text, font) else { return (0, 0) };
         for gy in 0..g.h {
             for gx in 0..g.w {
@@ -521,6 +643,31 @@ impl Canvas {
             )
         }
     }
+}
+
+/// Points of a chart: one per column, at the column centre, newest at the right edge. Fewer
+/// samples than columns are stretched across the width (linear interpolation); more are cut to
+/// the last `w`. y is the line's height for the value (from the bottom, or from the top `down`).
+fn chart_points(x: i32, y: i32, w: i32, h: i32, values: &[f32], down: bool) -> Vec<(f32, f32)> {
+    let n = values.len();
+    let col_y = |v: f32| {
+        let v = v.clamp(0.0, 1.0) * h as f32;
+        if down { y as f32 + v } else { (y + h) as f32 - v }
+    };
+    if n >= 2 && (n as i32) < w {
+        return (0..w)
+            .map(|i| {
+                let pos = i as f32 * (n - 1) as f32 / (w - 1).max(1) as f32;
+                let a = pos.floor() as usize;
+                let b = (a + 1).min(n - 1);
+                let t = pos - a as f32;
+                ((x + i) as f32 + 0.5, col_y(values[a] * (1.0 - t) + values[b] * t))
+            })
+            .collect();
+    }
+    let take = n.min(w as usize);
+    let x0 = x + w - take as i32;
+    values[n - take..].iter().enumerate().map(|(i, v)| ((x0 + i as i32) as f32 + 0.5, col_y(*v))).collect()
 }
 
 /// Pixel coverage (0..1) of a rounded rectangle, evaluated at the pixel centre with a 1px-wide AA ramp.
