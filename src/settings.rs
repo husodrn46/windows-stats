@@ -742,6 +742,11 @@ fn page_sensors(ui: &mut Ui, cfg: &Config, m: &MetricsData) {
     if available || on {
         ui.toggle(r, on, cfg_fx(move |c| c.lhm_sensors = !on));
     }
+    if on {
+        let r = ui.row(&t("settings.lhm_elevated"), &t("settings.lhm_elevated_desc"));
+        let el = cfg.lhm_elevated;
+        ui.toggle(r, el, cfg_fx(move |c| c.lhm_elevated = !el));
+    }
     let status = if !on {
         t("popup.helper_off")
     } else if !m.helper.running {

@@ -72,6 +72,9 @@ pub struct Config {
     pub alerts: Vec<crate::alerts::Rule>,
     /// Advanced sensors through the optional LibreHardwareMonitor helper process (off by default).
     pub lhm_sensors: bool,
+    /// start the helper with administrator rights (a UAC prompt at every start); needed with
+    /// the PawnIO driver for CPU temperatures, fans and voltages
+    pub lhm_elevated: bool,
 }
 
 impl Default for Config {
@@ -114,6 +117,7 @@ impl Default for Config {
             ping_host: String::new(),
             alerts: crate::alerts::default_rules(),
             lhm_sensors: false,
+            lhm_elevated: false,
         }
     }
 }

@@ -34,8 +34,17 @@ struct Shared {
     info: HelperInfo,
 }
 
+/// How the helper runs: our child with its stdout piped to us, or elevated (started through
+/// UAC, so it cannot inherit handles) writing into a named pipe we created.
+enum Source {
+    Child(Child),
+    /// server end of the pipe, raw; disconnecting it makes the helper's next write fail and
+    /// the helper exit (an elevated process cannot be terminated from here)
+    Pipe(isize),
+}
+
 pub struct SensorHost {
-    child: Child,
+    source: Source,
     shared: Arc<Mutex<Shared>>,
 }
 
@@ -79,8 +88,126 @@ pub fn parse_line(line: &str, batch: &mut Vec<Reading>, info: &mut HelperInfo) -
     }
 }
 
+/// Read the helper's lines on a thread into `shared`.
+fn spawn_reader(reader: impl std::io::Read + Send + 'static, shared: Arc<Mutex<Shared>>) {
+    let _ = std::thread::Builder::new().name("sensor-helper".into()).spawn(move || {
+        let mut batch = Vec::new();
+        let mut info = HelperInfo::default();
+        let mut logged_batch = false;
+        for line in BufReader::new(reader).lines() {
+            let Ok(line) = line else { break };
+            if !info.running {
+                crate::log!("sensor helper says: {}", line.chars().take(40).collect::<String>());
+            }
+            let done = parse_line(line.trim_end(), &mut batch, &mut info);
+            if done && !logged_batch {
+                logged_batch = true;
+                crate::log!("sensor helper: first batch, {} readings", batch.len());
+            }
+            if let Ok(mut g) = shared.lock() {
+                g.info = info;
+                if done {
+                    g.readings = std::mem::take(&mut batch);
+                }
+            }
+        }
+        if let Ok(mut g) = shared.lock() {
+            g.info.running = false;
+        }
+    });
+}
+
 impl SensorHost {
-    pub fn start(interval_ms: u32) -> Option<SensorHost> {
+    /// Start the helper; `elevated` asks Windows for administrator rights (UAC prompt) and
+    /// falls back to a normal start when the user declines.
+    pub fn start(interval_ms: u32, elevated: bool) -> Option<SensorHost> {
+        if elevated {
+            match Self::start_elevated(interval_ms) {
+                Some(h) => return Some(h),
+                None => crate::log!("sensor helper: elevation declined or failed, starting it without"),
+            }
+        }
+        Self::start_child(interval_ms)
+    }
+
+    fn start_elevated(interval_ms: u32) -> Option<SensorHost> {
+        use std::os::windows::io::FromRawHandle;
+        use windows::Win32::Storage::FileSystem::{FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_INBOUND};
+        use windows::Win32::System::Pipes::{ConnectNamedPipe, CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_WAIT};
+        use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
+        let path = helper_path()?;
+        // an unguessable name, one instance, local clients only
+        let nonce = {
+            use std::hash::{BuildHasher, Hasher};
+            let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+            h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0));
+            h.finish()
+        };
+        let name = format!("WindowsStats-sensors-{}-{nonce:016x}", std::process::id());
+        let full = crate::util::wide(&format!(r"\\.\pipe\{name}"));
+        let pipe = unsafe {
+            CreateNamedPipeW(
+                crate::util::pcwstr(&full),
+                PIPE_ACCESS_INBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE,
+                PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+                1,
+                0,
+                64 * 1024,
+                0,
+                None,
+            )
+        };
+        if pipe.is_invalid() {
+            crate::log!("sensor helper: CreateNamedPipe failed");
+            return None;
+        }
+        // WINDOWS_STATS_PIPE_TEST: the same pipe path without elevation (for tests, no UAC prompt)
+        let verb = crate::util::wide(if std::env::var_os("WINDOWS_STATS_PIPE_TEST").is_some() { "open" } else { "runas" });
+        let file = crate::util::wide(&path.display().to_string());
+        let params = crate::util::wide(&format!("--pipe {name} --parent {} --interval {}", std::process::id(), interval_ms.clamp(1000, 10_000)));
+        let mut sei = SHELLEXECUTEINFOW {
+            cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+            fMask: SEE_MASK_NOCLOSEPROCESS,
+            lpVerb: crate::util::pcwstr(&verb),
+            lpFile: crate::util::pcwstr(&file),
+            lpParameters: crate::util::pcwstr(&params),
+            nShow: 0, // SW_HIDE
+            ..Default::default()
+        };
+        // ShellExecuteEx (the UAC prompt) wants COM on the calling thread
+        let com = unsafe { windows::Win32::System::Com::CoInitializeEx(None, windows::Win32::System::Com::COINIT_APARTMENTTHREADED | windows::Win32::System::Com::COINIT_DISABLE_OLE1DDE).is_ok() };
+        let launched = unsafe { ShellExecuteExW(&mut sei) };
+        if com {
+            unsafe { windows::Win32::System::Com::CoUninitialize() };
+        }
+        if let Err(e) = launched {
+            crate::log!("sensor helper: elevated start failed: {e}");
+            unsafe {
+                let _ = windows::Win32::Foundation::CloseHandle(pipe);
+            }
+            return None;
+        }
+        unsafe {
+            if !sei.hProcess.is_invalid() {
+                let _ = windows::Win32::Foundation::CloseHandle(sei.hProcess);
+            }
+        }
+        let raw = pipe.0 as isize;
+        let shared: Arc<Mutex<Shared>> = Arc::default();
+        let s = shared.clone();
+        // wait for the helper to connect on the reader thread, then read like stdout
+        let _ = std::thread::Builder::new().name("sensor-pipe".into()).spawn(move || unsafe {
+            let h = windows::Win32::Foundation::HANDLE(raw as *mut _);
+            let r = ConnectNamedPipe(h, None);
+            crate::log!("sensor pipe: client connected ({r:?})");
+            let file = std::fs::File::from_raw_handle(raw as *mut _);
+            spawn_reader(file, s);
+        });
+        crate::log!("sensor helper started elevated: {}", path.display());
+        Some(SensorHost { source: Source::Pipe(raw), shared })
+    }
+
+    fn start_child(interval_ms: u32) -> Option<SensorHost> {
         let path = helper_path()?;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         let mut child = Command::new(&path)
@@ -94,26 +221,9 @@ impl SensorHost {
             .ok()?;
         let stdout = child.stdout.take()?;
         let shared: Arc<Mutex<Shared>> = Arc::default();
-        let s = shared.clone();
-        let _ = std::thread::Builder::new().name("sensor-helper".into()).spawn(move || {
-            let mut batch = Vec::new();
-            let mut info = HelperInfo::default();
-            for line in BufReader::new(stdout).lines() {
-                let Ok(line) = line else { break };
-                let done = parse_line(line.trim_end(), &mut batch, &mut info);
-                if let Ok(mut g) = s.lock() {
-                    g.info = info;
-                    if done {
-                        g.readings = std::mem::take(&mut batch);
-                    }
-                }
-            }
-            if let Ok(mut g) = s.lock() {
-                g.info.running = false;
-            }
-        });
+        spawn_reader(stdout, shared.clone());
         crate::log!("sensor helper started: {}", path.display());
-        Some(SensorHost { child, shared })
+        Some(SensorHost { source: Source::Child(child), shared })
     }
 
     pub fn readings(&self) -> (Vec<Reading>, HelperInfo) {
@@ -123,8 +233,16 @@ impl SensorHost {
 
 impl Drop for SensorHost {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        match &mut self.source {
+            Source::Child(c) => {
+                let _ = c.kill();
+                let _ = c.wait();
+            }
+            Source::Pipe(raw) => unsafe {
+                // the helper's next write fails and it exits
+                let _ = windows::Win32::System::Pipes::DisconnectNamedPipe(windows::Win32::Foundation::HANDLE(*raw as *mut _));
+            },
+        }
         crate::log!("sensor helper stopped");
     }
 }

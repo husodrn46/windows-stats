@@ -152,7 +152,7 @@ static class Program
             if (!s.Value.HasValue) continue;
             float v = s.Value.Value;
             if (float.IsNaN(v) || float.IsInfinity(v)) continue;
-            o.WriteLine(string.Join("\t", hw.HardwareType.ToString(), Clean(hw.Name), s.SensorType.ToString(), Clean(s.Name), v.ToString("R", CultureInfo.InvariantCulture), s.Identifier.ToString()));
+            o.WriteLine(string.Join("\t", "S", hw.HardwareType.ToString(), Clean(hw.Name), s.SensorType.ToString(), Clean(s.Name), v.ToString("R", CultureInfo.InvariantCulture), s.Identifier.ToString()));
         }
         foreach (var sub in hw.SubHardware) Emit(o, sub, ring0);
     }

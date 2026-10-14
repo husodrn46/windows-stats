@@ -190,6 +190,8 @@ disk_temp = "Disk temperature"
 battery_level = "Battery level"
 
 [settings]
+lhm_elevated = "Run the helper as administrator"
+lhm_elevated_desc = "Windows asks for permission (UAC) every time Windows Stats starts. Needed, together with the PawnIO driver, for CPU temperatures, fans and voltages. Declined: the helper runs without."
 page_sensors = "Sensors"
 sensors_desc = "Disk temperatures and, on dedicated graphics cards, the GPU temperature come from Windows itself. More sensors are available through LibreHardwareMonitor, run as a separate helper process."
 lhm = "Advanced sensors (LibreHardwareMonitor)"

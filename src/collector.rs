@@ -28,6 +28,7 @@ pub struct Settings {
     pub cpu_utility: bool,
     /// run the LibreHardwareMonitor helper
     pub lhm: bool,
+    pub lhm_elevated: bool,
 }
 
 impl Settings {
@@ -41,6 +42,7 @@ impl Settings {
             group_pe: cfg.group_pe_cores,
             cpu_utility: cfg.cpu_utility,
             lhm: cfg.lhm_sensors,
+            lhm_elevated: cfg.lhm_elevated,
         }
     }
 }
@@ -145,7 +147,7 @@ fn run(rx: Receiver<Cmd>, latest: Arc<Mutex<Option<MetricsData>>>, posted: Arc<A
     let mut host: Option<crate::sensorhost::SensorHost> = None;
     let sync_host = |host: &mut Option<crate::sensorhost::SensorHost>, s: &Settings| {
         if s.lhm && host.is_none() {
-            *host = crate::sensorhost::SensorHost::start(s.interval_ms.max(2000));
+            *host = crate::sensorhost::SensorHost::start(s.interval_ms.max(2000), s.lhm_elevated);
         } else if !s.lhm {
             *host = None;
         }
@@ -184,6 +186,10 @@ fn run(rx: Receiver<Cmd>, latest: Arc<Mutex<Option<MetricsData>>>, posted: Arc<A
                 if s.interval_ms != settings.interval_ms {
                     next = Instant::now() + interval(&s);
                 }
+                if s.lhm_elevated != settings.lhm_elevated {
+                    // restart the helper with the other rights
+                    host = None;
+                }
                 sync_host(&mut host, &s);
                 settings = s;
             }
@@ -219,7 +225,19 @@ fn run(rx: Receiver<Cmd>, latest: Arc<Mutex<Option<MetricsData>>>, posted: Arc<A
                     match &host {
                         Some(h) => {
                             let (r, info) = h.readings();
+                            let first = metrics.data.ext_sensors.is_empty() && !r.is_empty();
                             metrics.data.apply_helper(r, info);
+                            if first {
+                                let temps = metrics.data.ext_sensors.iter().filter(|x| x.kind == "Temperature").count();
+                                let fans = metrics.data.ext_sensors.iter().filter(|x| x.kind == "Fan").count();
+                                crate::log!(
+                                    "sensor helper: {} readings ({temps} temperatures, {fans} fans), elevated={}, pawnio={}, cpu_temp={:?}",
+                                    metrics.data.ext_sensors.len(),
+                                    info.elevated,
+                                    info.pawnio,
+                                    metrics.data.cpu_temp
+                                );
+                            }
                         }
                         None => metrics.data.apply_helper(Vec::new(), Default::default()),
                     }
