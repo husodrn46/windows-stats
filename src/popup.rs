@@ -1061,6 +1061,19 @@ fn link_speed(bps: u64) -> String {
     }
 }
 
+/// Temperature colour: plain up to 70 °C, then yellow, orange from 80, red from 90.
+fn temp_color(t: &Theme, c: f32) -> Color {
+    if c >= 90.0 {
+        RED
+    } else if c >= 80.0 {
+        Color::rgb(0xFF, 0x98, 0x00)
+    } else if c >= 70.0 {
+        YELLOW
+    } else {
+        t.text
+    }
+}
+
 fn pct(v: f32) -> String {
     format!("{}%", (v * 100.0).round() as i32)
 }
@@ -1099,6 +1112,10 @@ fn draw_cpu(ui: &mut Ui, m: &MetricsData) {
     ui.row(&t("popup.system"), &pct(m.cpu_system));
     ui.row(&t("popup.user"), &pct(m.cpu_user));
     ui.row(&t("popup.idle"), &pct((1.0 - m.cpu_total).max(0.0)));
+    match m.cpu_temp {
+        Some(tc) => ui.row_colored(&t("popup.temperature"), &format!("{tc:.0} \u{00B0}C"), temp_color(ui.t, tc)),
+        None => ui.row_lv(&t("popup.temperature"), &t("popup.not_available"), ui.t.dim, ui.t.dim),
+    }
     if m.cpu_sockets > 1 {
         ui.row(&t("popup.sockets"), &m.cpu_sockets.to_string());
     }
@@ -1193,6 +1210,14 @@ fn draw_gpu(ui: &mut Ui, m: &MetricsData) {
     match m.gpu {
         Some(v) => ui.row_colored(&t("popup.load"), &pct(v), ui.t.usage(v, ui.t.text)),
         None => ui.row(&t("popup.load"), &t("popup.na")),
+    }
+    // what the display driver reports; nothing invented when it does not
+    match m.gpu_temp {
+        Some(tc) => ui.row_colored(&t("popup.temperature"), &format!("{tc:.0} \u{00B0}C"), temp_color(ui.t, tc)),
+        None => ui.row_lv(&t("popup.temperature"), &t("popup.not_available"), ui.t.dim, ui.t.dim),
+    }
+    if let Some(rpm) = m.gpu_fan_rpm {
+        ui.row(&t("popup.fan"), &format!("{rpm} RPM"));
     }
     if m.vram_budget > 0 {
         let frac = m.vram_used as f32 / m.vram_budget as f32;
@@ -1298,16 +1323,22 @@ fn draw_disk(ui: &mut Ui, m: &MetricsData) {
     if !m.disks.is_empty() {
         ui.section(&t("popup.physical_disks"));
         for d in &m.disks {
-            let mut desc = String::new();
+            let mut parts: Vec<String> = Vec::new();
             if !d.bus.is_empty() {
-                desc.push_str(d.bus);
+                parts.push(d.bus.to_string());
+            }
+            match d.ssd {
+                Some(true) if d.bus != "NVMe" => parts.push("SSD".into()),
+                Some(false) => parts.push("HDD".into()),
+                _ => {}
             }
             if d.size > 0 {
-                if !desc.is_empty() {
-                    desc.push_str(" · ");
-                }
-                desc.push_str(&format_bytes(d.size));
+                parts.push(format_bytes(d.size));
             }
+            if let Some(tc) = d.temp_c {
+                parts.push(format!("{tc:.0} \u{00B0}C"));
+            }
+            let desc = parts.join(" \u{00B7} ");
             let start = ui.y;
             let (lc, vc) = (ui.on_off(ui.t.text, d.enabled), ui.on_off(ui.t.dim, d.enabled));
             ui.row_lv(&d.model, &desc, lc, vc);

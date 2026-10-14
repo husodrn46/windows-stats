@@ -58,6 +58,14 @@ pub fn run(args: &[String]) -> bool {
             }
             true
         }
+        "--settings" => {
+            // a running instance opens its settings window; otherwise the app starts and opens it
+            if post_running(crate::WM_APP_OPEN_SETTINGS) {
+                return true;
+            }
+            crate::OPEN_SETTINGS_AT_START.store(true, std::sync::atomic::Ordering::Relaxed);
+            false
+        }
         "--quit" => {
             attach_console();
             let found = quit_running();
@@ -86,6 +94,18 @@ fn attach_console() {
         let redirected = GetStdHandle(STD_OUTPUT_HANDLE).map_or(false, |h| !h.is_invalid() && !h.0.is_null());
         if !redirected {
             let _ = AttachConsole(ATTACH_PARENT_PROCESS);
+        }
+    }
+}
+
+/// Post `msg` to the hidden window of the running instance (same settings home).
+pub fn post_running(msg: u32) -> bool {
+    let cls = wide(crate::CLASS_HIDDEN);
+    let title = wide(&crate::util::hidden_title());
+    unsafe {
+        match FindWindowW(pcwstr(&cls), pcwstr(&title)) {
+            Ok(h) if !h.0.is_null() => PostMessageW(h, msg, WPARAM(0), LPARAM(0)).is_ok(),
+            _ => false,
         }
     }
 }
@@ -131,7 +151,13 @@ pub fn sample_json(t_ms: u128, took_ms: f64, m: &MetricsData) -> String {
         None => "null".into(),
     };
     format!(
-        "{{\"t_ms\":{t_ms},\"sample_ms\":{took_ms:.2},\"cpu\":{:.4},\"cpu_system\":{:.4},\"cpu_user\":{:.4},\"cpu_cores\":[{}],\"cpu_clock_mhz\":{},\"mem_used\":{},\"mem_total\":{},\"mem_pct\":{:.4},\"gpu\":{},\"net_rx\":{:.0},\"net_tx\":{:.0},\"disk_read\":{:.0},\"disk_write\":{:.0},\"battery\":{battery}}}",
+        "{{\"t_ms\":{t_ms},\"sample_ms\":{took_ms:.2},\"gpu_temp\":{},\"disks\":[{}],\"cpu\":{:.4},\"cpu_system\":{:.4},\"cpu_user\":{:.4},\"cpu_cores\":[{}],\"cpu_clock_mhz\":{},\"mem_used\":{},\"mem_total\":{},\"mem_pct\":{:.4},\"gpu\":{},\"net_rx\":{:.0},\"net_tx\":{:.0},\"disk_read\":{:.0},\"disk_write\":{:.0},\"battery\":{battery}}}",
+        opt(m.gpu_temp),
+        m.disks
+            .iter()
+            .map(|d| format!("{{\"model\":{},\"bus\":{},\"ssd\":{},\"temp_c\":{}}}", json_str(&d.model), json_str(d.bus), d.ssd.map(|v| v.to_string()).unwrap_or_else(|| "null".into()), opt(d.temp_c)))
+            .collect::<Vec<_>>()
+            .join(","),
         m.cpu_total,
         m.cpu_system,
         m.cpu_user,

@@ -17,6 +17,10 @@ pub struct PhysicalDisk {
     pub write_bps: f64,
     /// counted in the widget and the chart (Physical disks list in the popup toggles it)
     pub enabled: bool,
+    /// drive temperature, °C, when the drive reports it
+    pub temp_c: Option<f32>,
+    /// true SSD, false spinning disk, None unknown
+    pub ssd: Option<bool>,
 }
 
 fn bus_name(bus: u32) -> &'static str {
@@ -112,6 +116,8 @@ fn query(index: u32) -> Option<PhysicalDisk> {
                     read_bps: 0.0,
                     write_bps: 0.0,
                     enabled: true,
+                    temp_c: None,
+                    ssd: None,
                 })
             }
         }

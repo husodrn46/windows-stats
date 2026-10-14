@@ -68,6 +68,8 @@ pub struct Config {
     /// How the strip is hosted: "auto" (embedded in the taskbar), "embedded" (child of the
     /// taskbar) or "floating" (always-on-top window over the taskbar).
     pub mode: String,
+    /// Threshold notifications ("[[alerts]]"); the presets are all off.
+    pub alerts: Vec<crate::alerts::Rule>,
 }
 
 impl Default for Config {
@@ -108,6 +110,7 @@ impl Default for Config {
             net_chart_rx: true,
             net_chart_tx: true,
             ping_host: String::new(),
+            alerts: crate::alerts::default_rules(),
         }
     }
 }

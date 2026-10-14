@@ -160,6 +160,10 @@ pub fn local_timestamp() -> String {
 
 pub fn log(msg: &str) {
     eprintln!("{msg}");
+    // unit tests never touch the user's log
+    if cfg!(test) {
+        return;
+    }
     let dir = config_dir();
     let _ = std::fs::create_dir_all(&dir);
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log_path()) {

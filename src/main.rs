@@ -15,11 +15,14 @@ mod i18n;
 mod menu;
 mod metrics;
 mod about;
+mod alerts;
 mod backdrop;
 mod popup;
+mod settings;
 mod procicon;
 mod taskbar;
 mod taskbar_uia;
+mod toast;
 mod util;
 mod widgets;
 
@@ -71,6 +74,11 @@ const MENU_CONFIG: usize = 2;
 const MENU_RELOAD: usize = 3;
 const MENU_TASKMGR: usize = 4;
 const MENU_ABOUT: usize = 5;
+const MENU_SETTINGS: usize = 8;
+/// posted by `WindowsStats.exe --settings` to a running instance
+pub const WM_APP_OPEN_SETTINGS: u32 = WM_APP + 5;
+/// `--settings` when no instance was running: open the window once started
+pub static OPEN_SETTINGS_AT_START: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Class names of our windows (also checked by the full-screen detection).
 const CLASS_HIDDEN: &str = "WindowsStatsHidden";
@@ -78,6 +86,8 @@ const CLASS_BAR: &str = "WindowsStatsBar";
 const CLASS_POPUP: &str = "WindowsStatsPopup";
 const CLASS_SHADOW: &str = "WindowsStatsShadow";
 const CLASS_ABOUT: &str = "WindowsStatsAbout";
+const CLASS_TOAST: &str = "WindowsStatsToast";
+const CLASS_SETTINGS: &str = "WindowsStatsSettings";
 
 struct App {
     cfg: Config,
@@ -128,6 +138,10 @@ struct App {
     /// consecutive SetParent refusals
     attach_failures: u32,
     embed_probe_at: std::time::Instant,
+    /// threshold notifications: rule timers and the card that shows them
+    alerts: alerts::Alerts,
+    toast: toast::Toast,
+    settings: settings::Settings,
 }
 
 /// A full-screen Direct3D game or a presentation is in front: the shell says so, or the
@@ -221,6 +235,8 @@ fn main() {
         register_class(hinstance, CLASS_POPUP, Some(popup_wndproc));
         register_class(hinstance, CLASS_SHADOW, Some(shadow_wndproc));
         register_class(hinstance, CLASS_ABOUT, Some(about_wndproc));
+        register_class(hinstance, CLASS_TOAST, Some(toast_wndproc));
+        register_class(hinstance, CLASS_SETTINGS, Some(settings_wndproc));
     }
 
     // a top-level (not message-only) window: it has to receive the TaskbarCreated broadcast
@@ -268,6 +284,8 @@ fn main() {
     let widgets = widgets::build(&cfg.widgets);
     let popup = Popup::new(hinstance, CLASS_POPUP, backdrop::Opacity::from_config(&cfg.popup_opacity)).expect("popup window");
     let about = About::new(hinstance, CLASS_ABOUT).expect("about window");
+    let toast = toast::Toast::new(hinstance, CLASS_TOAST).expect("toast window");
+    let settings = settings::Settings::new(hinstance, CLASS_SETTINGS).expect("settings window");
     APP.with(|a| {
         *a.borrow_mut() = Some(App {
             cfg: cfg.clone(),
@@ -299,6 +317,9 @@ fn main() {
             auto_floating: false,
             attach_failures: 0,
             embed_probe_at: std::time::Instant::now(),
+            alerts: alerts::Alerts::default(),
+            toast,
+            settings,
         })
     });
 
@@ -311,6 +332,9 @@ fn main() {
         i18n::current()
     );
     with_app(|app| app.tick());
+    if OPEN_SETTINGS_AT_START.load(std::sync::atomic::Ordering::Relaxed) {
+        with_app(|app| app.open_settings());
+    }
     unsafe {
         SetTimer(hidden, TIMER_WATCH, WATCH_MS, None);
         let mut msg = MSG::default();
@@ -569,8 +593,26 @@ impl App {
         if let Some(d) = c.take() {
             self.metrics = d;
             self.last_data = std::time::Instant::now();
+            self.check_alerts();
         }
         self.tick();
+    }
+
+    /// Advance the threshold rules by one sample; a rule that fires shows the card.
+    fn check_alerts(&mut self) {
+        let dt = self.cfg.update_ms as f32 / 1000.0;
+        let fired = self.alerts.evaluate(&self.cfg.alerts, &self.metrics, dt);
+        if let Some(f) = fired.last() {
+            let metric = t(f.rule.metric.key());
+            let (value, limit) = (f.rule.metric.format(f.value), f.rule.metric.format(f.rule.threshold));
+            let secs = f.rule.seconds.to_string();
+            let key = if f.rule.above { "alerts.fired_above" } else { "alerts.fired_below" };
+            let body = i18n::tf(key, &[("metric", &metric), ("limit", &limit), ("value", &value), ("seconds", &secs)]);
+            log!("alert: {body}");
+            let theme = self.theme();
+            let light = self.is_light();
+            self.toast.show(&theme, light, &t("alerts.title"), &body);
+        }
     }
 
     /// Latency rows: the ping thread's last readings go into the snapshot the popup draws.
@@ -789,6 +831,64 @@ impl App {
         if self.popup.visible {
             self.render_popup(false);
         }
+    }
+
+    fn open_settings(&mut self) {
+        self.popup.hide("settings");
+        let light = self.is_light();
+        self.settings.show(light);
+    }
+
+    /// A click in the settings window: change the config (save, apply everywhere) or act.
+    fn apply_settings(&mut self, e: settings::Effect) {
+        use settings::Effect;
+        match e {
+            Effect::Page(_) => {}
+            Effect::Autostart(on) => {
+                if !util::set_autostart(on) {
+                    log!("autostart change failed");
+                }
+            }
+            Effect::Open(target) => shell_open(&target),
+            Effect::LanguageMenu => {
+                if let Some(code) = language_menu(self.settings.hwnd, &self.cfg.language) {
+                    self.cfg.language = code;
+                    self.after_config_change();
+                }
+            }
+            Effect::Cfg(f) => {
+                let before = self.cfg.clone();
+                f(&mut self.cfg);
+                if self.cfg.alerts != before.alerts {
+                    self.alerts.reset();
+                }
+                if self.cfg.mode != before.mode {
+                    if self.cfg.mode == "floating" && !self.floating {
+                        self.go_floating("chosen in the settings");
+                    } else if self.cfg.mode != "floating" && self.floating {
+                        self.go_embedded();
+                    }
+                }
+                self.after_config_change();
+            }
+        }
+        self.settings.invalidate();
+    }
+
+    /// Save the config and bring everything in line with it.
+    fn after_config_change(&mut self) {
+        self.cfg.sanitize();
+        i18n::set_language(&self.cfg.language);
+        self.popup.opacity = backdrop::Opacity::from_config(&self.cfg.popup_opacity);
+        self.cfg.save();
+        self.widgets = widgets::build(&self.cfg.widgets);
+        self.reconfigure();
+        if self.cfg.position == "left" {
+            if let Some(tb) = &self.taskbar {
+                tb.restore();
+            }
+        }
+        self.tick();
     }
 
     /// Where the settings menu opens: flush against the taskbar on the side away from the
@@ -1018,6 +1118,8 @@ impl App {
         unsafe {
             let _ = DestroyWindow(self.popup.hwnd);
             let _ = DestroyWindow(self.about.hwnd);
+            let _ = DestroyWindow(self.toast.hwnd);
+            let _ = DestroyWindow(self.settings.hwnd);
             if IsWindow(self.bar).as_bool() {
                 let _ = DestroyWindow(self.bar);
             }
@@ -1082,6 +1184,10 @@ unsafe extern "system" fn hidden_wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, l
             }
             LRESULT(0)
         }
+        WM_APP_OPEN_SETTINGS => {
+            with_app(|app| app.open_settings());
+            LRESULT(0)
+        }
         taskbar_uia::WM_APP_TASKBAR_ITEMS => {
             with_app(|app| {
                 if !app.fullscreen_hidden {
@@ -1107,6 +1213,7 @@ unsafe extern "system" fn hidden_wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, l
                     log!("system resumed");
                     with_app(|app| {
                         app.send(Cmd::Resume);
+                        app.alerts.reset();
                         app.tick();
                     });
                 }
@@ -1209,6 +1316,21 @@ unsafe extern "system" fn bar_wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
             open_taskmgr();
             LRESULT(0)
         }
+        _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
+    }
+}
+
+unsafe extern "system" fn toast_wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    match msg {
+        WM_TIMER if wparam.0 == toast::TOAST_TIMER => {
+            with_app(|app| app.toast.hide());
+            LRESULT(0)
+        }
+        WM_LBUTTONUP | WM_RBUTTONUP => {
+            with_app(|app| app.toast.hide());
+            LRESULT(0)
+        }
+        WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
         _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
     }
 }
@@ -1344,6 +1466,117 @@ unsafe extern "system" fn popup_wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lp
     }
 }
 
+/// Open a file, folder or URL with its default program.
+fn shell_open(target: &str) {
+    let verb = wide("open");
+    let t = wide(target);
+    unsafe {
+        ShellExecuteW(None, pcwstr(&verb), pcwstr(&t), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL);
+    }
+}
+
+/// The language list at the pointer; the chosen code ("auto" for the Windows language).
+fn language_menu(owner: HWND, current: &str) -> Option<String> {
+    unsafe {
+        let menu = CreatePopupMenu().ok()?;
+        menu_item(menu, 1, &t("menu.lang_system"), current == "auto");
+        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+        for (i, (code, name, _)) in i18n::LOCALES.iter().enumerate() {
+            menu_item(menu, 2 + i, name, current == *code);
+        }
+        let mut pt = POINT::default();
+        let _ = GetCursorPos(&mut pt);
+        let cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_NONOTIFY, pt.x, pt.y, 0, owner, None).0 as usize;
+        let _ = DestroyMenu(menu);
+        match cmd {
+            0 => None,
+            1 => Some("auto".to_string()),
+            c => i18n::LOCALES.get(c - 2).map(|l| l.0.to_string()),
+        }
+    }
+}
+
+unsafe extern "system" fn settings_wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    let xy = || ((lparam.0 & 0xFFFF) as i16 as i32, ((lparam.0 >> 16) & 0xFFFF) as i16 as i32);
+    match msg {
+        WM_PAINT => {
+            let painted = with_app(|app| {
+                let th = app.theme();
+                app.settings.paint(&th, &app.cfg, &app.metrics, util::autostart_enabled());
+            });
+            if painted.is_none() {
+                let mut ps = PAINTSTRUCT::default();
+                BeginPaint(hwnd, &mut ps);
+                let _ = EndPaint(hwnd, &ps);
+            }
+            LRESULT(0)
+        }
+        WM_ERASEBKGND => LRESULT(1),
+        WM_SIZE => {
+            with_app(|app| app.settings.invalidate());
+            LRESULT(0)
+        }
+        WM_MOUSEMOVE => {
+            let (x, y) = xy();
+            let mut tme = TRACKMOUSEEVENT { cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32, dwFlags: TME_LEAVE, hwndTrack: hwnd, dwHoverTime: 0 };
+            let _ = TrackMouseEvent(&mut tme);
+            with_app(|app| {
+                if app.settings.mouse_move(x, y) {
+                    app.settings.invalidate();
+                }
+            });
+            LRESULT(0)
+        }
+        WM_MOUSELEAVE => {
+            with_app(|app| app.settings.mouse_leave());
+            LRESULT(0)
+        }
+        WM_LBUTTONDOWN => {
+            let (x, y) = xy();
+            with_app(|app| {
+                if let Some(e) = app.settings.click(x, y) {
+                    app.apply_settings(e);
+                }
+            });
+            LRESULT(0)
+        }
+        WM_MOUSEWHEEL => {
+            let delta = ((wparam.0 >> 16) & 0xFFFF) as i16 as i32;
+            with_app(|app| app.settings.wheel(delta));
+            LRESULT(0)
+        }
+        WM_SETCURSOR => {
+            let mut pt = POINT::default();
+            let _ = GetCursorPos(&mut pt);
+            let _ = ScreenToClient(hwnd, &mut pt);
+            if with_app(|app| app.settings.over_control(pt.x, pt.y)).unwrap_or(false) {
+                if let Ok(c) = LoadCursorW(None, IDC_HAND) {
+                    SetCursor(c);
+                }
+                return LRESULT(1);
+            }
+            DefWindowProcW(hwnd, msg, wparam, lparam)
+        }
+        WM_GETMINMAXINFO => {
+            let mmi = &mut *(lparam.0 as *mut MINMAXINFO);
+            let s = util::dpi_for_window(hwnd).unwrap_or(96) as i32;
+            mmi.ptMinTrackSize = POINT { x: 640 * s / 96, y: 420 * s / 96 };
+            LRESULT(0)
+        }
+        WM_DPICHANGED => {
+            let r = &*(lparam.0 as *const RECT);
+            let _ = SetWindowPos(hwnd, None, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE);
+            with_app(|app| app.settings.invalidate());
+            LRESULT(0)
+        }
+        WM_CLOSE => {
+            with_app(|app| app.settings.hide());
+            LRESULT(0)
+        }
+        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+    }
+}
+
 fn open_taskmgr() {
     let verb = wide("open");
     let file = wide("taskmgr.exe");
@@ -1427,11 +1660,12 @@ unsafe fn color_entries(sub: HMENU, base: usize, current: &str, cfg: &Config, dp
 
 /// Update intervals as shown in the menu.
 fn interval_title(ms: u32) -> String {
+    let unit = t("settings.seconds_short");
     if ms % 1000 == 0 {
-        format!("{} s", ms / 1000)
+        format!("{} {unit}", ms / 1000)
     } else {
-        // "0,5 s" in Turkish and other comma-decimal languages, "0.5 s" in English
-        format!("{} s", util::format_decimal(ms as f64 / 1000.0, 1))
+        // "0,5 sn" in Turkish, "0.5 s" in English
+        format!("{} {unit}", util::format_decimal(ms as f64 / 1000.0, 1))
     }
 }
 
@@ -1476,6 +1710,8 @@ unsafe fn build_menu(st: &MenuState) -> Option<HMENU> {
     let (hybrid, splittable, gpu_ok, battery_ok, dpi, vertical) = (*hybrid, *splittable, *gpu_ok, *battery_ok, *dpi, *vertical);
     unsafe {
         let menu = CreatePopupMenu().ok()?;
+        menu_item(menu, MENU_SETTINGS, &t("menu.settings"), false);
+        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         for (mi, kind) in widgets::MODULES.iter().enumerate() {
             let sub = CreatePopupMenu().ok()?;
             for (i, (k, name, title)) in widgets::CATALOG.iter().enumerate() {
@@ -1642,7 +1878,7 @@ fn menu_state() -> Option<MenuState> {
 
 /// Commands that change a setting and keep the menu open; the rest close it.
 fn menu_sticky(id: u32) -> bool {
-    !matches!(id as usize, MENU_EXIT | MENU_CONFIG | MENU_RELOAD | MENU_TASKMGR | MENU_ABOUT)
+    !matches!(id as usize, MENU_EXIT | MENU_CONFIG | MENU_RELOAD | MENU_TASKMGR | MENU_ABOUT | MENU_SETTINGS)
 }
 
 fn menu_rebuild() -> Option<HMENU> {
@@ -1672,6 +1908,9 @@ fn menu_command(cmd: u32) {
         }
         MENU_RELOAD => {
             with_app(|app| app.reload());
+        }
+        MENU_SETTINGS => {
+            with_app(|app| app.open_settings());
         }
         MENU_AUTOSTART => {
             let enable = !util::autostart_enabled();

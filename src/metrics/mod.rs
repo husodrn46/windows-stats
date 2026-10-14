@@ -8,6 +8,7 @@ pub mod net;
 pub mod ping;
 pub mod pdh;
 pub mod processes;
+pub mod sensors;
 pub mod smbios;
 
 use crate::util::{pcwstr, wide};
@@ -92,6 +93,9 @@ pub struct MetricsData {
     pub cpu_temp: Option<f32>,
     /// current clock per displayed core, MHz; empty when unknown
     pub cpu_freq: Vec<u32>,
+    /// hottest GPU, °C, from the display driver (None: no GPU reports it)
+    pub gpu_temp: Option<f32>,
+    pub gpu_fan_rpm: Option<u32>,
 }
 
 impl MetricsData {
@@ -163,6 +167,8 @@ pub struct Metrics {
     cpu_order: Vec<usize>,
     /// CPU load as Task Manager shows it (% Processor Utility); false = busy time only
     pub cpu_utility: bool,
+    /// samples taken, to space out the slower sensor reads
+    ticks: u64,
 }
 
 impl Deref for Metrics {
@@ -220,6 +226,7 @@ impl Metrics {
             disk_letter: disk_letter.to_string(),
             cpu_order,
             cpu_utility: true,
+            ticks: 0,
         }
     }
 
@@ -367,6 +374,22 @@ impl Metrics {
         }
 
         d.battery = battery::read();
+
+        // driver-reported GPU temperature: a cheap kernel query, every sample
+        let gpus = sensors::gpus();
+        d.gpu_temp = gpus.iter().filter_map(|g| g.temp_c).fold(None, |a: Option<f32>, t| Some(a.map_or(t, |a| a.max(t))));
+        d.gpu_fan_rpm = gpus.iter().filter_map(|g| g.fan_rpm).max();
+        // disk temperatures change slowly: every 10th sample (and right away for the popup)
+        if self.ticks % 10 == 0 || (details && d.disks.iter().all(|x| x.ssd.is_none())) {
+            for disk in d.disks.iter_mut() {
+                let (t, ssd) = sensors::disk(disk.index);
+                disk.temp_c = t;
+                if ssd.is_some() {
+                    disk.ssd = ssd;
+                }
+            }
+        }
+        self.ticks += 1;
 
         if details {
             self.procs.update();

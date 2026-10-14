@@ -170,7 +170,7 @@ static class UiTest {
             h = tray == IntPtr.Zero ? IntPtr.Zero : FindWindowExW(tray, IntPtr.Zero, cls, null);
         }
         if (h == IntPtr.Zero || !GetWindowRect(h, out RECT r)) { Console.WriteLine("none"); return 1; }
-        Console.WriteLine($"{r.l} {r.t} {r.r} {r.b}");
+        Console.WriteLine($"{r.l} {r.t} {r.r} {r.b} {h.ToInt64():X8}");
         return 0;
     }
 
