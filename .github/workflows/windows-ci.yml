@@ -1,0 +1,103 @@
+name: Windows build and tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Rust tests, CLI smoke and sensor helper (MSVC)
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CARGO_TERM_COLOR: never
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Prepare pinned Rust and Windows resource compiler
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustup default 1.99.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustc --version
+          $resourceCompiler = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\rc.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $resourceCompiler) { throw 'Windows SDK rc.exe is missing' }
+          $resourceCompiler.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Build release executable
+        run: |
+          cargo build --locked --release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $metadata = (Get-Item target/release/WindowsStats.exe).VersionInfo
+          if ($metadata.ProductName -ne 'Windows Stats') { throw 'Product resources are missing' }
+          $version = (Select-String Cargo.toml '^version\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          if ($metadata.ProductVersion -ne $version) { throw 'Embedded version does not match Cargo.toml' }
+
+      - name: Run Rust unit tests
+        run: |
+          cargo test --locked --release 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/rust-tests.log"
+          $testExit = $LASTEXITCODE
+          if ($testExit -ne 0) { exit $testExit }
+          $log = Get-Content "$env:RUNNER_TEMP/rust-tests.log" -Raw
+          if ($log -notmatch 'test result: ok\. ([1-9][0-9]*) passed; 0 failed;') {
+            throw 'No successful nonempty Rust test suite was recorded'
+          }
+          "Rust unit tests: $($Matches[1]) passed." | Out-File $env:GITHUB_STEP_SUMMARY -Append
+
+      - name: Check CLI version and real CPU/memory samples
+        run: |
+          ./scripts/ci-smoke.ps1 -Executable ./target/release/WindowsStats.exe -WorkDirectory "$env:RUNNER_TEMP/windows-stats-cli"
+
+      - name: Build optional sensor helper
+        run: |
+          dotnet build helpers/sensors/WindowsStats.Sensors.csproj -c Release --nologo -v minimal "-p:BaseIntermediateOutputPath=$env:RUNNER_TEMP/sensors-obj/"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path target/sensors/bin/Release/net48/WindowsStats.Sensors.exe)) {
+            throw 'Sensor helper output is missing'
+          }
+          git diff --exit-code -- Cargo.toml Cargo.lock
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Collect unsigned validation artifacts
+        run: |
+          New-Item -ItemType Directory -Force target/ci-artifacts/sensors | Out-Null
+          Copy-Item target/release/WindowsStats.exe, LICENSE, THIRD-PARTY-NOTICES.md, README.md, README.tr.md target/ci-artifacts/
+          Copy-Item licenses target/ci-artifacts/licenses -Recurse
+          Get-ChildItem target/sensors/bin/Release/net48 -File |
+            Where-Object { $_.Extension -in '.exe', '.dll', '.config' } |
+            Copy-Item -Destination target/ci-artifacts/sensors
+          'Unsigned CI validation build (MSVC), not a published release. No drivers are installed. Taskbar UI and physical hardware sensors are not validated by CI.' |
+            Set-Content target/ci-artifacts/VALIDATION-BUILD.txt
+
+      - name: Upload validation artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: WindowsStats-validation-${{ github.sha }}
+          path: target/ci-artifacts/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: WindowsStats-test-log-${{ github.sha }}
+          path: ${{ runner.temp }}/rust-tests.log
+          if-no-files-found: warn
+          retention-days: 7
