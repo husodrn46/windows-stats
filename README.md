@@ -20,6 +20,12 @@ Inspired by [Stats](https://github.com/exelban/stats) for macOS and built on
 - **Interface in English and Turkish** (plus 27 more languages from winstats, partly translated);
   the Windows display language is picked automatically.
 
+## Try Windows Stats
+
+**[Download the latest Windows x64 release](https://github.com/husodrn46/windows-stats/releases/latest)** · [Installation steps](#install) · [Türkçe kurulum](README.tr.md#kurulum)
+
+Unzip the release and run `WindowsStats.exe` to try it without installing, or use `Kur.cmd` to install for your account. The executable is unsigned; see [known limitations](#faq-and-known-limitations) before downloading.
+
 ## Screenshots
 
 Real captures of the application's own canvas from an isolated Windows test instance, with the
