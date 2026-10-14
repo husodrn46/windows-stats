@@ -20,6 +20,59 @@ Inspired by [Stats](https://github.com/exelban/stats) for macOS and built on
 - **Interface in English and Turkish** (plus 27 more languages from winstats, partly translated);
   the Windows display language is picked automatically.
 
+## Screenshots
+
+Real captures of the application's own canvas from an isolated Windows test instance, with the
+Turkish interface and dark theme. Process names, IP/MAC addresses, adapter details and drive labels
+are redacted in the detail panels; the covered areas are marked `[gizlendi]` (hidden).
+
+**Taskbar strip**
+
+![Windows Stats strip showing CPU, memory, network and disk activity](docs/images/strip.png)
+
+| CPU | Memory |
+|---|---|
+| ![CPU detail panel, process names redacted](docs/images/popup-cpu.png) | ![Memory detail panel, process names redacted](docs/images/popup-mem.png) |
+| **Network** | **Disk** |
+| ![Network detail panel, addresses and adapter details redacted](docs/images/popup-net.png) | ![Disk detail panel, process names and drive labels redacted](docs/images/popup-disk.png) |
+
+**General settings**
+
+![General settings in Turkish](docs/images/settings-0.png)
+
+<details>
+<summary>More settings pages</summary>
+
+**Appearance**
+
+![Appearance settings](docs/images/settings-1.png)
+
+**Widgets**
+
+![Widget settings](docs/images/settings-2.png)
+
+**Sensors**
+
+![Sensor settings with advanced sensors disabled](docs/images/settings-3.png)
+
+**Notifications**
+
+![Notification settings](docs/images/settings-4.png)
+
+**Privacy**
+
+![Privacy settings with latency measurement disabled](docs/images/settings-5.png)
+
+**About**
+
+![About Windows Stats](docs/images/settings-6.png)
+
+</details>
+
+The sensor detail panel is not pictured: this test instance reported no temperature readings, so
+its sensor widget was not visible. The sensor settings page above shows the available configuration.
+See the [capture guide](docs/screenshots.md) to reproduce these images.
+
 ## Install
 
 No administrator rights needed; installs for your user account only.

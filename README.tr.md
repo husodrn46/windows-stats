@@ -20,6 +20,59 @@ geliştirilmiştir.
   Ölçülemeyen değerler hiçbir zaman bildirim üretmez.
 - Tamamen **Türkçe** arayüz (Windows dili Türkçe ise otomatik), Türkçe birimler (KB/sn, 1,5 GB).
 
+## Ekran görüntüleri
+
+Görüntüler, ayrı ayar klasörü kullanan Windows test örneğinde uygulamanın kendi tuvalinden
+alındı; arayüz Türkçe, tema koyu. Ayrıntı panellerindeki süreç adları, IP/MAC adresleri,
+bağdaştırıcı bilgileri ve sürücü etiketleri gizlendi; kapatılan alanlar `[gizlendi]` olarak işaretlendi.
+
+**Görev çubuğu şeridi**
+
+![CPU, bellek, ağ ve disk etkinliğini gösteren Windows Stats şeridi](docs/images/strip.png)
+
+| İşlemci | Bellek |
+|---|---|
+| ![İşlemci paneli, süreç adları gizlendi](docs/images/popup-cpu.png) | ![Bellek paneli, süreç adları gizlendi](docs/images/popup-mem.png) |
+| **Ağ** | **Disk** |
+| ![Ağ paneli, adresler ve bağdaştırıcı bilgileri gizlendi](docs/images/popup-net.png) | ![Disk paneli, süreç adları ve sürücü etiketleri gizlendi](docs/images/popup-disk.png) |
+
+**Genel ayarlar**
+
+![Genel ayarlar](docs/images/settings-0.png)
+
+<details>
+<summary>Diğer ayar sayfaları</summary>
+
+**Görünüm**
+
+![Görünüm ayarları](docs/images/settings-1.png)
+
+**Widget'lar**
+
+![Widget ayarları](docs/images/settings-2.png)
+
+**Sensörler**
+
+![Gelişmiş sensörlerin kapalı olduğu sensör ayarları](docs/images/settings-3.png)
+
+**Bildirimler**
+
+![Bildirim ayarları](docs/images/settings-4.png)
+
+**Gizlilik**
+
+![Gecikme ölçümünün kapalı olduğu gizlilik ayarları](docs/images/settings-5.png)
+
+**Hakkında**
+
+![Windows Stats hakkında](docs/images/settings-6.png)
+
+</details>
+
+Sensör ayrıntı panelinin görüntüsü yok: bu test örneğinde sıcaklık verisi alınamadığı için sensör
+widget'ı görünmedi. Yukarıdaki sensör ayarları sayfası mevcut seçenekleri gösteriyor.
+Bu görüntüleri yeniden hazırlamak için [çekim rehberine](docs/screenshots.md) bakabilirsiniz.
+
 ## Kurulum
 
 Yönetici izni gerekmez, yalnızca sizin kullanıcı hesabınıza kurulur.
