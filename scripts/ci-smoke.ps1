@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$Executable,
-    [Parameter(Mandatory = $true)][string]$WorkDirectory
+    [Parameter(Mandatory = $true)][string]$WorkDirectory,
+    [string]$ExpectedVersion
 )
 $ErrorActionPreference = 'Stop'
 $exe = (Resolve-Path $Executable).Path
@@ -28,10 +29,12 @@ function Invoke-CheckedCli([string[]]$CliArguments, [string]$Name) {
 }
 
 try {
-    $expected = (Select-String Cargo.toml '^version\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
-    $version = (Invoke-CheckedCli @('--version') 'version') -join "`n"
-    if ($version.Trim() -ne "Windows Stats $expected") { throw "Unexpected CLI version: $version" }
-    $lines = @(Invoke-CheckedCli @('--dump', '2', '1000') 'samples' | Where-Object { $_.Trim() })
+    if (-not $ExpectedVersion) {
+        $ExpectedVersion = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+    }
+    $version = (Invoke-CheckedCli -CliArguments @('--version') -Name 'version') -join "`n"
+    if ($version.Trim() -ne "Windows Stats $ExpectedVersion") { throw "Unexpected CLI version: $version" }
+    $lines = @(Invoke-CheckedCli -CliArguments @('--dump', '2', '1000') -Name 'samples' | Where-Object { $_.Trim() })
     if ($lines.Count -ne 2) { throw "Expected 2 JSON samples, received $($lines.Count)" }
     foreach ($line in $lines) {
         $sample = $line | ConvertFrom-Json

@@ -46,7 +46,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $metadata = (Get-Item target/release/WindowsStats.exe).VersionInfo
           if ($metadata.ProductName -ne 'Windows Stats') { throw 'Product resources are missing' }
-          $version = (Select-String Cargo.toml '^version\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          $version = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
           if ($metadata.ProductVersion -ne $version) { throw 'Embedded version does not match Cargo.toml' }
 
       - name: Run Rust unit tests
@@ -63,6 +63,19 @@ jobs:
       - name: Check CLI version and real CPU/memory samples
         run: |
           ./scripts/ci-smoke.ps1 -Executable ./target/release/WindowsStats.exe -WorkDirectory "$env:RUNNER_TEMP/windows-stats-cli"
+
+      - name: Smoke-check the published v0.1.0 archive
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'WindowsStats-0.1.0-x64.zip'
+          Invoke-WebRequest 'https://github.com/husodrn46/windows-stats/releases/download/v0.1.0/WindowsStats-0.1.0-x64.zip' -OutFile $archive
+          $expectedHash = '247975E09D33FBF5DA66C0B034F56F5767FB8FB844653D982F76156D796E3798'
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne $expectedHash) { throw 'Release archive checksum mismatch' }
+          $releaseDirectory = Join-Path $env:RUNNER_TEMP 'WindowsStats-published-release'
+          Expand-Archive $archive -DestinationPath $releaseDirectory
+          foreach ($relative in @('WindowsStats.exe', 'sensors/WindowsStats.Sensors.exe', 'LICENSE.txt', 'THIRD-PARTY-NOTICES.txt')) {
+            if (-not (Test-Path (Join-Path $releaseDirectory $relative))) { throw "Release file missing: $relative" }
+          }
+          ./scripts/ci-smoke.ps1 -Executable (Join-Path $releaseDirectory 'WindowsStats.exe') -WorkDirectory "$env:RUNNER_TEMP/windows-stats-release-cli" -ExpectedVersion '0.1.0'
 
       - name: Build optional sensor helper
         run: |
