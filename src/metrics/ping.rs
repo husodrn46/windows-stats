@@ -85,6 +85,11 @@ enum Probe {
 }
 
 fn configured_probe(host: &str) -> Option<Probe> {
+    // On Windows an empty hostname can resolve to a local interface address.
+    // Never let blank input select an implicit destination.
+    if host.trim().is_empty() {
+        return None;
+    }
     resolve(host).map(Probe::Icmp)
 }
 
@@ -191,5 +196,6 @@ mod tests {
     #[test]
     fn empty_host_cannot_trigger_network_probes() {
         assert_eq!(configured_probe(""), None);
+        assert_eq!(configured_probe("   "), None);
     }
 }
