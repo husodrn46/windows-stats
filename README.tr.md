@@ -110,6 +110,18 @@ powershell -ExecutionPolicy Bypass -File scripts\compare-taskmgr.ps1   # Görev 
 
 `tools\uitest` arayüz testleri için ekran yakalama ve fare yardımcısıdır (dağıtıma dahil değildir).
 
+## SSS ve bilinen sınırlamalar
+
+**SmartScreen veya antivirüs neden uyarı veriyor?** Uygulama şu an kod imzalı değil. SmartScreen tanınmayan yayıncı uyarısı verebilir; antivirüsler yeni bir sürümü sezgisel olarak işaretleyebilir. Yalnızca bu deponun Releases sayfasından indirin. İşaretlenen dosyayı inceleme için ilgili üreticiye gönderin; korumayı kapatmayın ve her uyarının yanlış pozitif olduğunu varsaymayın.
+
+**CPU sıcaklığı neden görünmüyor?** Gelişmiş CPU sensörleri için isteğe bağlı LibreHardwareMonitor yardımcısı ve ayrıca kurulmuş PawnIO sürücüsü gerekir. Ayarlar > Sensörler bölümünden yardımcıyı ve gerekiyorsa yönetici modunu açın. Windows Stats kendiliğinden sürücü kurmaz. Donanım desteği değişir; okunamayan değerler kullanılamıyor olarak gösterilir.
+
+**Şerit her monitörde gösterilebilir mi?** Şerit şu an yalnızca ana monitörün görev çubuğunda görünür. Birden fazla monitörde şerit desteklenmiyor.
+
+**Şerit neden yüzüyor veya bazı bileşenler gizleniyor?** Windows görev çubuğuna gömmeye izin vermediğinde aynı bölgede yüzen moda geçer. Windows 11'de görev düğmelerini kapatmamak için taraf değiştirebilir veya sondaki bileşenleri gizleyebilir. Tam ekran uygulamalarda gizlenir.
+
+**Sorunları nereye bildirebilirim?** Windows sürümü/derlemesi, uygulama sürümü ve tekrar etme adımlarıyla bir issue açın. `%APPDATA%\WindowsStats\WindowsStats.log` dosyasını eklemeden önce kişisel bilgileri temizleyin.
+
 ## Teşekkürler
 
 Windows Stats başkalarının emeği üzerine kuruldu. Teşekkürler:

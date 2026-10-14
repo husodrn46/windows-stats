@@ -513,6 +513,19 @@ impl Popup {
             self.canvas.stroke_round_rect_r(sh, sh, w, h, r, t.dim.alpha(0.35));
         }
         self.canvas.blit(&self.content, sh + pad, sh + pad);
+        // Export only our rendered pixels; no desktop or other windows are captured.
+        if let Some(dir) = std::env::var_os("WINDOWS_STATS_DEBUG_DUMP") {
+            let name = match kind {
+                Kind::Cpu => "cpu",
+                Kind::Gpu => "gpu",
+                Kind::Mem => "mem",
+                Kind::Disk => "disk",
+                Kind::Net => "net",
+                Kind::Battery => "battery",
+                Kind::Sensors => "sensors",
+            };
+            let _ = self.canvas.save_bmp(&std::path::Path::new(&dir).join(format!("popup-{name}.bmp")));
+        }
 
         // position: above (or below) the taskbar, centred on the clicked widget
         let mut mi = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };

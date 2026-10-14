@@ -124,6 +124,8 @@ struct App {
     /// RegisterShellHookWindow notifications (windows created / destroyed: task buttons change)
     wm_shellhook: u32,
     ticks: u64,
+    /// Sample count for the opt-in, isolated documentation capture workflow.
+    debug_samples: u64,
     /// when the last sample arrived, for the watchdog timer
     last_data: std::time::Instant,
     /// Windows 11: where Explorer's own taskbar items are (UI Automation, its own thread)
@@ -315,6 +317,7 @@ fn main() {
             wm_taskbar_created,
             wm_shellhook,
             ticks: 0,
+            debug_samples: 0,
             last_data: std::time::Instant::now(),
             items: None,
             items_tray: HWND::default(),
@@ -605,8 +608,31 @@ impl App {
             self.metrics = d;
             self.last_data = std::time::Instant::now();
             self.check_alerts();
+            self.debug_samples += 1;
         }
         self.tick();
+        // Never automate the user's normal instance. Use an explicit scratch home and dump dir.
+        if self.debug_samples == 4
+            && std::env::var_os("WINDOWS_STATS_HOME").is_some()
+            && std::env::var_os("WINDOWS_STATS_DEBUG_DUMP").is_some()
+        {
+            self.debug_samples += 1; // consume the one-shot even if another message has no data
+            let kind = match std::env::var("WINDOWS_STATS_DEBUG_POPUP").as_deref() {
+                Ok("cpu") => Some(Kind::Cpu),
+                Ok("gpu") => Some(Kind::Gpu),
+                Ok("mem") => Some(Kind::Mem),
+                Ok("disk") => Some(Kind::Disk),
+                Ok("net") => Some(Kind::Net),
+                Ok("battery") => Some(Kind::Battery),
+                Ok("sensors") => Some(Kind::Sensors),
+                _ => None,
+            };
+            if let Some((_, _, p0, p1, q0, q1)) = self.layout.iter().find(|(_, k, ..)| Some(*k) == kind).copied() {
+                let (m, c) = ((p0 + p1) / 2, (q0 + q1) / 2);
+                let (x, y) = if self.taskbar.as_ref().map_or(false, |t| t.vertical()) { (c, m) } else { (m, c) };
+                self.click(x, y);
+            }
+        }
     }
 
     /// Advance the threshold rules by one sample; a rule that fires shows the card.

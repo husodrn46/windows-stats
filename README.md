@@ -118,6 +118,18 @@ powershell -ExecutionPolicy Bypass -File scripts\compare-taskmgr.ps1   # compare
 
 `tools\uitest` is a screen-capture and mouse helper for UI tests (not part of the release).
 
+## FAQ and known limitations
+
+**Why do SmartScreen or antivirus products warn about the download?** The executable is currently unsigned. SmartScreen can warn about an unrecognized publisher, and antivirus heuristics may flag a new release. Download only from this repository's Releases page; if flagged, submit the specific file to the vendor for review. Do not disable protection or assume every detection is a false positive.
+
+**Why is CPU temperature unavailable?** Advanced CPU sensors require the optional LibreHardwareMonitor helper and the separately installed PawnIO driver. Enable the helper in Settings > Sensors and, when needed, its administrator mode. Windows Stats never installs a driver automatically. Hardware support varies; unavailable values remain unavailable.
+
+**Can I show the strip on every monitor?** The strip currently appears only on the primary monitor's taskbar. Multi-monitor strips are not supported yet.
+
+**Why does the strip float or hide some widgets?** When Windows refuses taskbar embedding, it floats in the same area. On Windows 11 it may move sides or hide trailing widgets to avoid covering task buttons. It hides over a full-screen application.
+
+**Where do I report a problem?** Open an issue with the Windows version/build, application version and steps to reproduce. Review `%APPDATA%\WindowsStats\WindowsStats.log` and remove private information before attaching it.
+
 ## Acknowledgements
 
 Windows Stats stands on the work of others. Thank you:

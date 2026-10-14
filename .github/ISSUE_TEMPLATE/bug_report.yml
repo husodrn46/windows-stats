@@ -1,0 +1,50 @@
+name: Bug report / Hata bildirimi
+description: Report a reproducible problem with Windows Stats.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        English or Turkish is welcome. Please remove private information from logs and screenshots.
+        Do not include your desktop or unrelated windows in screenshots.
+  - type: input
+    id: version
+    attributes:
+      label: Windows Stats version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version and OS build
+      description: Open winver and copy the version and OS build; do not share registration details.
+      placeholder: "Windows 11, 24H2, OS build ..."
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include the widget or settings page, taskbar position, monitor count and display scaling when relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: sensors
+    attributes:
+      label: Sensor setup (if relevant)
+      description: Hardware model, helper enabled, PawnIO version and whether the helper runs as administrator. Never include serial numbers.
+  - type: textarea
+    id: log
+    attributes:
+      label: WindowsStats.log
+      description: |
+        Attach the relevant part of %APPDATA%\WindowsStats\WindowsStats.log, or describe why it is unavailable.
+        Remove usernames, personal paths, IP/MAC addresses, Wi-Fi names and other private information first.
+        Include only screenshots of the application itself.
