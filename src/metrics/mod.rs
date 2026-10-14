@@ -96,9 +96,45 @@ pub struct MetricsData {
     /// hottest GPU, °C, from the display driver (None: no GPU reports it)
     pub gpu_temp: Option<f32>,
     pub gpu_fan_rpm: Option<u32>,
+    /// readings of the LibreHardwareMonitor helper (empty when it is off)
+    pub ext_sensors: Vec<crate::sensorhost::Reading>,
+    pub helper: crate::sensorhost::HelperInfo,
+    /// the user switched the helper on
+    pub helper_enabled: bool,
 }
 
 impl MetricsData {
+    /// Take the helper's readings in: the CPU temperature only comes from there (it needs the
+    /// PawnIO driver); a GPU temperature the display driver does not report may.
+    pub fn apply_helper(&mut self, readings: Vec<crate::sensorhost::Reading>, info: crate::sensorhost::HelperInfo) {
+        let temp = |hw: &dyn Fn(&str) -> bool, names: &[&str]| -> Option<f32> {
+            for n in names {
+                if let Some(r) = readings.iter().find(|r| hw(&r.hw_type) && r.kind == "Temperature" && r.name == *n) {
+                    return Some(r.value);
+                }
+            }
+            readings.iter().filter(|r| hw(&r.hw_type) && r.kind == "Temperature").map(|r| r.value).fold(None, |a: Option<f32>, v| Some(a.map_or(v, |a| a.max(v))))
+        };
+        self.cpu_temp = temp(&|t| t == "Cpu", &["CPU Package", "Core (Tctl/Tdie)", "Core Average"]).filter(|v| *v > 0.0);
+        if self.gpu_temp.is_none() {
+            self.gpu_temp = temp(&|t| t.starts_with("Gpu"), &["GPU Core"]).filter(|v| *v > 0.0);
+        }
+        self.ext_sensors = readings;
+        self.helper = info;
+    }
+
+    /// The hottest measured temperature and where it is: CPU first (what users watch), then the
+    /// GPU, then the hottest disk. None when nothing on this machine reports a temperature.
+    pub fn headline_temp(&self) -> Option<(&'static str, f32)> {
+        if let Some(t) = self.cpu_temp {
+            return Some(("CPU", t));
+        }
+        if let Some(t) = self.gpu_temp {
+            return Some(("GPU", t));
+        }
+        self.disks.iter().filter_map(|d| d.temp_c).fold(None, |a: Option<f32>, t| Some(a.map_or(t, |a| a.max(t)))).map(|t| ("SSD", t))
+    }
+
     /// Where to draw a divider in the core charts: before core i when its socket or its
     /// efficiency class differs from core i-1.
     pub fn cpu_breaks(&self) -> Vec<bool> {

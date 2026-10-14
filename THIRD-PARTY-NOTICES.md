@@ -80,7 +80,31 @@ zincirinin getirdiği MinGW-w64 başlangıç kodu (crt) ve libgcc parçaları st
 - llvm-mingw 20260922 (yalnızca kaynak derleyici `windres` için), Apache-2.0 WITH
   LLVM-exception ve mingw-w64 lisansları, https://github.com/mstorsjo/llvm-mingw
 
-## 6. Windows bileşenleri
+## 6. İsteğe bağlı sensör yardımcısı (WindowsStats.Sensors.exe)
+
+Gelişmiş sensörler (varsayılan olarak kapalı) ayrı bir süreç olan `sensors\WindowsStats.Sensors.exe`
+ile okunur. Bu süreç aşağıdaki kütüphaneleri **değiştirilmeden** kullanır. MPL-2.0 kapsamındaki
+dosyaların kaynak kodu, belirtilen sürümleriyle aşağıdaki adreslerde bulunur (MPL-2.0 §3.2).
+Windows Stats'in kendi kodu MPL kapsamında değildir; bu kütüphanelerle birlikte "Daha Büyük Bir
+Eser" (Larger Work) oluşturur (MPL-2.0 §3.3).
+
+| Bileşen | Sürüm | Lisans | Kaynak |
+|---|---|---|---|
+| LibreHardwareMonitorLib | 0.9.6 | MPL-2.0 | https://github.com/LibreHardwareMonitor/LibreHardwareMonitor |
+| DiskInfoToolkit | 1.1.2 | MPL-2.0 | https://github.com/Blacktempel/DiskInfoToolkit |
+| BlackSharp.Core | 1.0.4 | MPL-2.0 | https://github.com/Blacktempel/BlackSharp |
+| RAMSPDToolkit-NDD | 1.4.2 | MPL-2.0 | https://github.com/Blacktempel/RAMSPDToolkit |
+| PawnIO.Modules (LibreHardwareMonitorLib.dll içine gömülü) | 0.2.x | LGPL-2.1 | https://github.com/namazso/PawnIO.Modules |
+| HidSharp | 2.6.4 | Apache-2.0, Copyright 2010-2025 James F. Bellinger | https://www.zer7.com/software/hidsharp |
+| System.Memory, System.Buffers, System.CodeDom, System.Numerics.Vectors, System.Runtime.CompilerServices.Unsafe, System.Security.AccessControl, System.Security.Principal.Windows, System.Threading.AccessControl | 4.x–10.x | MIT, .NET Foundation | https://github.com/dotnet/runtime |
+
+Lisans metinleri dağıtımla birlikte `licenses\` klasöründedir: `MPL-2.0.txt`, `LGPL-2.1.txt`,
+`Apache-2.0-HidSharp.txt`, `MIT-dotnet.txt`.
+
+**Sürücü:** PawnIO çekirdek sürücüsü (GPL-2.0) Windows Stats ile **dağıtılmaz** ve Windows Stats
+tarafından kurulmaz. Kullanıcı isterse kendisi https://pawnio.eu adresinden kurabilir.
+
+## 7. Windows bileşenleri
 
 Segoe UI yazı tipleri, DirectWrite, PDH, DXGI ve diğer sistem API'leri Windows'un parçasıdır ve
 Windows Stats ile birlikte dağıtılmaz.

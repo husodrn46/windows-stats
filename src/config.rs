@@ -70,6 +70,8 @@ pub struct Config {
     pub mode: String,
     /// Threshold notifications ("[[alerts]]"); the presets are all off.
     pub alerts: Vec<crate::alerts::Rule>,
+    /// Advanced sensors through the optional LibreHardwareMonitor helper process (off by default).
+    pub lhm_sensors: bool,
 }
 
 impl Default for Config {
@@ -111,6 +113,7 @@ impl Default for Config {
             net_chart_tx: true,
             ping_host: String::new(),
             alerts: crate::alerts::default_rules(),
+            lhm_sensors: false,
         }
     }
 }

@@ -18,6 +18,7 @@ mod about;
 mod alerts;
 mod backdrop;
 mod popup;
+mod sensorhost;
 mod settings;
 mod procicon;
 mod taskbar;
@@ -555,7 +556,7 @@ impl App {
         } else {
             (WHITE, Color::rgba(255, 255, 255, 150))
         };
-        let mut modes = [ColorMode::Accent; 6];
+        let mut modes = [ColorMode::Accent; 7];
         for (i, k) in widgets::MODULES.iter().enumerate() {
             modes[i] = match self.cfg.colors.get(module_key(*k)) {
                 Some(v) => ColorMode::parse(v),
@@ -1629,6 +1630,7 @@ fn module_key(k: Kind) -> &'static str {
         Kind::Disk => "disk",
         Kind::Net => "net",
         Kind::Battery => "battery",
+        Kind::Sensors => "sensors",
     }
 }
 

@@ -59,6 +59,18 @@ if (-not $NoPackage) {
     Copy-Item (Join-Path $root 'LICENSE') (Join-Path $dist 'LICENSE.txt')
     Copy-Item (Join-Path $root 'THIRD-PARTY-NOTICES.md') (Join-Path $dist 'THIRD-PARTY-NOTICES.txt')
     Copy-Item (Join-Path $root 'README.md') (Join-Path $dist 'README.md')
+    Copy-Item -Recurse (Join-Path $root 'licenses') (Join-Path $dist 'licenses')
+    # optional sensor helper (LibreHardwareMonitorLib): needs the .NET SDK to build
+    if (Get-Command dotnet -ErrorAction SilentlyContinue) {
+        & dotnet build (Join-Path $root 'helpers\sensors\WindowsStats.Sensors.csproj') -c Release --nologo -v quiet
+        if ($LASTEXITCODE -ne 0) { throw "sensor helper build failed ($LASTEXITCODE)" }
+        $helper = Join-Path $root 'target\sensors\bin\Release\net48'
+        $sdir = Join-Path $dist 'sensors'
+        New-Item -ItemType Directory -Force -Path $sdir | Out-Null
+        Get-ChildItem $helper -Include '*.exe', '*.dll', '*.config' -File -Recurse | Copy-Item -Destination $sdir
+    } else {
+        Write-Warning 'dotnet not found: package built without the sensor helper'
+    }
     $zip = Join-Path $root "dist\WindowsStats-$version-x64.zip"
     if (Test-Path $zip) { Remove-Item -Force $zip }
     Compress-Archive -Path (Join-Path $dist '*') -DestinationPath $zip

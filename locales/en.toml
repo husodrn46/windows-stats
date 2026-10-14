@@ -2,6 +2,7 @@
 # Keys are section.key; {name} placeholders are filled in by the program.
 
 [module]
+sensors = "Sensors"
 cpu = "CPU"
 gpu = "GPU"
 ram = "RAM"
@@ -10,6 +11,7 @@ network = "Network"
 battery = "Battery"
 
 [widget]
+temperature = "Temperature"
 bar_chart = "Bar chart"
 line_chart = "Line chart"
 mini = "Mini"
@@ -80,6 +82,14 @@ white = "White"
 black = "Black"
 
 [popup]
+sensors = "Sensors"
+builtin_sensors = "Reported by Windows"
+helper_off = "Advanced sensors are off (Settings > Sensors)"
+helper_starting = "Starting the sensor helper…"
+helper_limited = "Advanced sensors on, without the PawnIO driver"
+helper_full = "Advanced sensors on, with the PawnIO driver"
+why_missing = "Why some values are missing"
+pawnio_note = "CPU temperature, fans and voltages are read from the hardware through the PawnIO driver, which needs administrator rights. Windows Stats never installs it by itself."
 cpu = "CPU"
 memory = "Memory"
 gpu = "GPU"
@@ -180,6 +190,16 @@ disk_temp = "Disk temperature"
 battery_level = "Battery level"
 
 [settings]
+page_sensors = "Sensors"
+sensors_desc = "Disk temperatures and, on dedicated graphics cards, the GPU temperature come from Windows itself. More sensors are available through LibreHardwareMonitor, run as a separate helper process."
+lhm = "Advanced sensors (LibreHardwareMonitor)"
+lhm_desc = "Runs WindowsStats.Sensors.exe as your user, without administrator rights. It installs nothing and talks to Windows Stats only through a pipe."
+helper_missing = "The helper is not installed next to WindowsStats.exe."
+status = "Status"
+pawnio_yes = "PawnIO driver installed"
+pawnio_no = "PawnIO driver not installed"
+pawnio_long = "CPU temperatures, power, fan speeds and motherboard voltages need the PawnIO kernel driver and a helper running with administrator rights. Windows Stats does not install drivers. If you want these values, install PawnIO yourself from its official site; without it these sensors show as not available instead of a wrong value."
+pawnio_site = "PawnIO website"
 limit = "Limit"
 duration = "Duration"
 title = "Windows Stats settings"

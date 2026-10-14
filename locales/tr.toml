@@ -1,6 +1,7 @@
 # Windows Stats: Türkçe
 
 [module]
+sensors = "Sensörler"
 cpu = "İşlemci"
 gpu = "Ekran kartı"
 ram = "Bellek"
@@ -9,6 +10,7 @@ network = "Ağ"
 battery = "Pil"
 
 [widget]
+temperature = "Sıcaklık"
 bar_chart = "Çekirdek başına çubuk"
 line_chart = "Geçmiş"
 mini = "Yüzde"
@@ -79,6 +81,14 @@ white = "Beyaz"
 black = "Siyah"
 
 [popup]
+sensors = "Sensörler"
+builtin_sensors = "Windows'un bildirdikleri"
+helper_off = "Gelişmiş sensörler kapalı (Ayarlar > Sensörler)"
+helper_starting = "Sensör yardımcısı başlatılıyor…"
+helper_limited = "Gelişmiş sensörler açık, PawnIO sürücüsü olmadan"
+helper_full = "Gelişmiş sensörler açık, PawnIO sürücüsüyle"
+why_missing = "Bazı değerler neden yok"
+pawnio_note = "İşlemci sıcaklığı, fanlar ve voltajlar donanımdan PawnIO sürücüsüyle okunur; bu sürücü yönetici izni gerektirir. Windows Stats onu hiçbir zaman kendiliğinden kurmaz."
 cpu = "İşlemci"
 memory = "Bellek"
 gpu = "Ekran kartı"
@@ -179,6 +189,16 @@ disk_temp = "Disk sıcaklığı"
 battery_level = "Pil düzeyi"
 
 [settings]
+page_sensors = "Sensörler"
+sensors_desc = "Disk sıcaklıkları ve harici ekran kartlarında GPU sıcaklığı doğrudan Windows'tan gelir. Daha fazla sensör, ayrı bir yardımcı süreç olarak çalışan LibreHardwareMonitor ile okunabilir."
+lhm = "Gelişmiş sensörler (LibreHardwareMonitor)"
+lhm_desc = "WindowsStats.Sensors.exe'yi sizin kullanıcınızla, yönetici izni olmadan çalıştırır. Hiçbir şey kurmaz; Windows Stats ile yalnızca bir boru (pipe) üzerinden konuşur."
+helper_missing = "Yardımcı, WindowsStats.exe'nin yanında bulunamadı."
+status = "Durum"
+pawnio_yes = "PawnIO sürücüsü kurulu"
+pawnio_no = "PawnIO sürücüsü kurulu değil"
+pawnio_long = "İşlemci sıcaklığı, güç, fan devirleri ve anakart voltajları için PawnIO çekirdek sürücüsü ve yönetici olarak çalışan bir yardımcı gerekir. Windows Stats sürücü kurmaz. Bu değerleri istiyorsanız PawnIO'yu resmî sitesinden kendiniz kurabilirsiniz; kurulu değilken bu sensörler yanlış bir değer yerine \"kullanılamıyor\" olarak görünür."
+pawnio_site = "PawnIO web sitesi"
 limit = "Sınır"
 duration = "Süre"
 title = "Windows Stats ayarları"

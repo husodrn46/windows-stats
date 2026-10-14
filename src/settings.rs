@@ -49,7 +49,7 @@ pub struct Settings {
     mouse: Option<(i32, i32)>,
 }
 
-pub const PAGES: &[&str] = &["settings.page_general", "settings.page_appearance", "settings.page_widgets", "settings.page_alerts", "settings.page_privacy", "settings.page_about"];
+pub const PAGES: &[&str] = &["settings.page_general", "settings.page_appearance", "settings.page_widgets", "settings.page_sensors", "settings.page_alerts", "settings.page_privacy", "settings.page_about"];
 
 impl Settings {
     pub fn new(hinstance: HINSTANCE, class: &str) -> Option<Self> {
@@ -185,8 +185,9 @@ impl Settings {
             0 => page_general(&mut ui, cfg, autostart),
             1 => page_appearance(&mut ui, cfg),
             2 => page_widgets(&mut ui, cfg, m),
-            3 => page_alerts(&mut ui, cfg, m),
-            4 => page_privacy(&mut ui, cfg),
+            3 => page_sensors(&mut ui, cfg, m),
+            4 => page_alerts(&mut ui, cfg, m),
+            5 => page_privacy(&mut ui, cfg),
             _ => page_about(&mut ui),
         }
         self.content_h = ui.y + self.scroll;
@@ -729,4 +730,31 @@ fn page_about(ui: &mut Ui) {
     }
     ui.button(None, "github.com/mgvs/winstats", Effect::Open(crate::about::UPSTREAM_URL.to_string()));
     ui.button(None, "github.com/exelban/stats", Effect::Open("https://github.com/exelban/stats".to_string()));
+}
+
+fn page_sensors(ui: &mut Ui, cfg: &Config, m: &MetricsData) {
+    ui.heading(&t("settings.page_sensors"));
+    ui.note(&t("settings.sensors_desc"));
+    let available = crate::sensorhost::helper_path().is_some();
+    let desc = if available { t("settings.lhm_desc") } else { format!("{} {}", t("settings.lhm_desc"), t("settings.helper_missing")) };
+    let r = ui.row(&t("settings.lhm"), &desc);
+    let on = cfg.lhm_sensors;
+    if available || on {
+        ui.toggle(r, on, cfg_fx(move |c| c.lhm_sensors = !on));
+    }
+    let status = if !on {
+        t("popup.helper_off")
+    } else if !m.helper.running {
+        t("popup.helper_starting")
+    } else if m.helper.elevated && m.helper.pawnio {
+        t("popup.helper_full")
+    } else {
+        t("popup.helper_limited")
+    };
+    let pawn = if m.helper.pawnio { t("settings.pawnio_yes") } else { t("settings.pawnio_no") };
+    ui.row(&t("settings.status"), &format!("{status} \u{00B7} {pawn}"));
+    ui.section(&t("popup.why_missing"));
+    ui.note(&t("settings.pawnio_long"));
+    ui.button(None, &t("settings.pawnio_site"), Effect::Open("https://pawnio.eu".to_string()));
+    ui.button(None, "LibreHardwareMonitor (MPL-2.0)", Effect::Open("https://github.com/LibreHardwareMonitor/LibreHardwareMonitor".to_string()));
 }

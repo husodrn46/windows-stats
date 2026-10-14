@@ -472,6 +472,7 @@ impl Popup {
             Kind::Net => draw_net(&mut ui, m),
             Kind::Disk => draw_disk(&mut ui, m),
             Kind::Battery => draw_battery(&mut ui, m),
+            Kind::Sensors => draw_sensors(&mut ui, m),
         }
         // layout cursor, not painted pixels: reserved (empty) rows count too
         let end_y = ui.y;
@@ -1061,18 +1062,7 @@ fn link_speed(bps: u64) -> String {
     }
 }
 
-/// Temperature colour: plain up to 70 °C, then yellow, orange from 80, red from 90.
-fn temp_color(t: &Theme, c: f32) -> Color {
-    if c >= 90.0 {
-        RED
-    } else if c >= 80.0 {
-        Color::rgb(0xFF, 0x98, 0x00)
-    } else if c >= 70.0 {
-        YELLOW
-    } else {
-        t.text
-    }
-}
+use crate::widgets::temp_color;
 
 fn pct(v: f32) -> String {
     format!("{}%", (v * 100.0).round() as i32)
@@ -1404,4 +1394,92 @@ fn draw_battery(ui: &mut Ui, m: &MetricsData) {
             ui.row(&t("popup.capacity"), &format!("{:.1} / {:.1} Wh", d.remaining_mwh as f32 / 1000.0, d.max_mwh as f32 / 1000.0));
         }
     }
+}
+
+/// Unit and number format of a LibreHardwareMonitor sensor type; None for types this panel
+/// does not show (loads and data amounts are in the other panels already).
+fn sensor_value(kind: &str, v: f32) -> Option<String> {
+    Some(match kind {
+        "Temperature" => format!("{v:.0} \u{00B0}C"),
+        "Fan" => format!("{v:.0} RPM"),
+        "Voltage" => format!("{} V", crate::util::format_decimal(v as f64, 3)),
+        "Power" => format!("{} W", crate::util::format_decimal(v as f64, 1)),
+        "Clock" => format!("{v:.0} MHz"),
+        "Current" => format!("{} A", crate::util::format_decimal(v as f64, 2)),
+        "Control" => format!("{v:.0}%"),
+        _ => return None,
+    })
+}
+
+fn draw_sensors(ui: &mut Ui, m: &MetricsData) {
+    let status = if !m.helper_enabled {
+        t("popup.helper_off")
+    } else if !m.helper.running {
+        t("popup.helper_starting")
+    } else if m.helper.elevated && m.helper.pawnio {
+        t("popup.helper_full")
+    } else {
+        t("popup.helper_limited")
+    };
+    ui.title(&t("popup.sensors"), &status);
+    // what Windows reports without any helper
+    ui.section(&t("popup.builtin_sensors"));
+    match m.cpu_temp {
+        Some(tc) => ui.row_colored(&t("alerts.cpu_temp"), &format!("{tc:.0} \u{00B0}C"), temp_color(ui.t, tc)),
+        None => ui.row_lv(&t("alerts.cpu_temp"), &t("popup.not_available"), ui.t.dim, ui.t.dim),
+    }
+    match m.gpu_temp {
+        Some(tc) => ui.row_colored(&t("alerts.gpu_temp"), &format!("{tc:.0} \u{00B0}C"), temp_color(ui.t, tc)),
+        None => ui.row_lv(&t("alerts.gpu_temp"), &t("popup.not_available"), ui.t.dim, ui.t.dim),
+    }
+    if let Some(rpm) = m.gpu_fan_rpm {
+        ui.row(&t("popup.fan"), &format!("{rpm} RPM"));
+    }
+    for d in &m.disks {
+        match d.temp_c {
+            Some(tc) => ui.row_colored(&d.model, &format!("{tc:.0} \u{00B0}C"), temp_color(ui.t, tc)),
+            None => ui.row_lv(&d.model, &t("popup.not_available"), ui.t.dim, ui.t.dim),
+        }
+    }
+    // the helper's readings, grouped by hardware
+    let mut groups: Vec<&str> = Vec::new();
+    for r in &m.ext_sensors {
+        if sensor_value(&r.kind, r.value).is_some() && !groups.contains(&r.hw.as_str()) {
+            groups.push(&r.hw);
+        }
+    }
+    for g in groups {
+        ui.section(g);
+        for r in m.ext_sensors.iter().filter(|r| r.hw == g) {
+            if let Some(v) = sensor_value(&r.kind, r.value) {
+                let col = if r.kind == "Temperature" { temp_color(ui.t, r.value) } else { ui.t.text };
+                ui.row_colored(&r.name, &v, col);
+            }
+        }
+    }
+    if m.helper_enabled && m.helper.running && !(m.helper.elevated && m.helper.pawnio) {
+        ui.section(&t("popup.why_missing"));
+        for line in wrap_words(ui, &t("popup.pawnio_note")) {
+            ui.row_lv(&line, "", ui.t.dim, ui.t.dim);
+        }
+    }
+}
+
+/// Split a long note into lines that fit the popup width.
+fn wrap_words(ui: &mut Ui, text: &str) -> Vec<String> {
+    let f = ui.font(11.0, FW_NORMAL);
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for word in text.split(' ') {
+        let cand = if line.is_empty() { word.to_string() } else { format!("{line} {word}") };
+        if line.is_empty() || ui.c.measure_text(&cand, f).0 <= ui.w {
+            line = cand;
+        } else {
+            lines.push(std::mem::replace(&mut line, word.to_string()));
+        }
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    lines
 }

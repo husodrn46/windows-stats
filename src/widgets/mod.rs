@@ -46,7 +46,7 @@ pub struct Theme {
     /// width of one core bar in DIP (Bar width in the menu)
     pub bar_w: f32,
     /// colour mode per module, indexed like MODULES
-    pub modes: [ColorMode; 6],
+    pub modes: [ColorMode; 7],
     /// series shown in the network popup chart
     pub net_rx: bool,
     pub net_tx: bool,
@@ -165,6 +165,7 @@ pub enum Kind {
     Disk,
     Net,
     Battery,
+    Sensors,
 }
 
 impl Kind {
@@ -177,6 +178,7 @@ impl Kind {
             Kind::Disk => "module.disk",
             Kind::Net => "module.network",
             Kind::Battery => "module.battery",
+            Kind::Sensors => "module.sensors",
         })
     }
 }
@@ -196,9 +198,10 @@ pub const CATALOG: &[(Kind, &str, &str)] = &[
     (Kind::Net, "net", "widget.speed"),
     (Kind::Net, "net_chart", "widget.chart"),
     (Kind::Battery, "battery", "widget.battery"),
+    (Kind::Sensors, "temp", "widget.temperature"),
 ];
 
-pub const MODULES: &[Kind] = &[Kind::Cpu, Kind::Gpu, Kind::Mem, Kind::Disk, Kind::Net, Kind::Battery];
+pub const MODULES: &[Kind] = &[Kind::Cpu, Kind::Gpu, Kind::Mem, Kind::Disk, Kind::Net, Kind::Battery, Kind::Sensors];
 
 /// True for the history-chart widgets (the ones that can be stretched on a vertical taskbar).
 pub fn is_chart(name: &str) -> bool {
@@ -322,6 +325,7 @@ pub fn build(names: &[String]) -> Vec<Box<dyn Widget>> {
             "net" => out.push(Box::new(Speed(Kind::Net))),
             "net_chart" => out.push(Box::new(DualChart(Kind::Net))),
             "battery" => out.push(Box::new(BatteryWidget)),
+            "temp" => out.push(Box::new(TempWidget)),
             other => crate::log!("unknown widget '{other}' in config"),
         }
     }
@@ -361,6 +365,7 @@ fn short_label(k: Kind) -> &'static str {
         Kind::Disk => "DSK",
         Kind::Net => "NET",
         Kind::Battery => "BAT",
+        Kind::Sensors => "TMP",
     }
 }
 
@@ -693,5 +698,60 @@ impl Widget for BatteryWidget {
         let inner = bw - 4;
         let fw = ((inner as f32) * b.level).round().max(1.0) as i32;
         c.fill_rect(bx + 2, by + 2, fw, bh - 4, fill_col);
+    }
+}
+
+// ---------------------------------------------------------------- temperature (Sensors module)
+
+/// The hottest measured temperature with where it comes from above it (CPU / GPU / SSD), like
+/// the Mini widget; takes no room on a machine that reports no temperature at all.
+pub struct TempWidget;
+
+fn temp_text(v: f32) -> String {
+    format!("{v:.0}\u{00B0}")
+}
+
+/// Plain up to 70 °C, then yellow, orange from 80, red from 90.
+pub fn temp_color(t: &Theme, c: f32) -> Color {
+    if c >= 90.0 {
+        RED
+    } else if c >= 80.0 {
+        Color::rgb(0xFF, 0x98, 0x00)
+    } else if c >= 70.0 {
+        YELLOW
+    } else {
+        t.text
+    }
+}
+
+impl Widget for TempWidget {
+    fn kind(&self) -> Kind {
+        Kind::Sensors
+    }
+    fn width(&self, c: &mut Canvas, t: &Theme, m: &MetricsData) -> i32 {
+        if m.headline_temp().is_none() {
+            return 0;
+        }
+        let reserve = c.measure_text("100\u{00B0}", t.font(11.0, FW_SEMIBOLD)).0;
+        let lw = c.measure_text("CPU", t.font(7.5, FW_NORMAL)).0;
+        reserve.max(lw)
+    }
+    fn draw(&self, c: &mut Canvas, x: i32, y: i32, t: &Theme, m: &MetricsData) {
+        let Some((src, v)) = m.headline_temp() else { return };
+        let w = self.width(c, t, m);
+        let lf = t.font(7.5, FW_NORMAL);
+        let vf = t.font(11.0, FW_SEMIBOLD);
+        let (lw, lh) = c.measure_text(src, lf);
+        let text = temp_text(v);
+        let (vw, vh) = c.measure_text(&text, vf);
+        let total = lh + vh - t.s(2.0);
+        let top = y + (t.inner_h - total) / 2;
+        c.draw_text(src, x + (w - lw) / 2, top, lf, t.dim);
+        let col = match t.mode(Kind::Sensors) {
+            ColorMode::Mono => t.text,
+            ColorMode::Fixed(f) => f,
+            _ => temp_color(t, v),
+        };
+        c.draw_text(&text, x + (w - vw) / 2, top + lh - t.s(2.0), vf, col);
     }
 }
