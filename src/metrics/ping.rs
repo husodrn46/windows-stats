@@ -46,7 +46,7 @@ impl Ping {
     pub fn set(&self, active: bool, host: &str) {
         let (m, cv) = &*self.st;
         let mut s = m.lock().unwrap();
-        let on = active && !host.is_empty();
+        let on = active && !host.trim().is_empty();
         if s.host != host || (s.active && !on) {
             s.host = host.to_string();
             s.target.clear();
@@ -87,7 +87,8 @@ enum Probe {
 fn configured_probe(host: &str) -> Option<Probe> {
     // On Windows an empty hostname can resolve to a local interface address.
     // Never let blank input select an implicit destination.
-    if host.trim().is_empty() {
+    let host = host.trim();
+    if host.is_empty() {
         return None;
     }
     resolve(host).map(Probe::Icmp)
