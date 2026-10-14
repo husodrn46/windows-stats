@@ -190,7 +190,8 @@ battery_level = "Pil düzeyi"
 
 [settings]
 lhm_elevated = "Yardımcıyı yönetici olarak çalıştır"
-lhm_elevated_desc = "Windows Stats her başladığında Windows izin ister (UAC). PawnIO sürücüsüyle birlikte işlemci sıcaklığı, fanlar ve voltajlar için gereklidir. İzin verilmezse yardımcı yetkisiz çalışır."
+lhm_elevated_desc = "Bu imzasız sürümde yönetici modu kullanılamaz."
+lhm_admin_disabled = "Güvenlik: İmzasız sensör yardımcısı yalnızca kullanıcı yetkilerinizle çalışır. Kullanıcıya özel kurulumlarda yönetici modu kapalıdır; işlemci sıcaklığı ve PawnIO gerektiren diğer sensörler kullanılamayabilir."
 page_sensors = "Sensörler"
 sensors_desc = "Disk sıcaklıkları ve harici ekran kartlarında GPU sıcaklığı doğrudan Windows'tan gelir. Daha fazla sensör, ayrı bir yardımcı süreç olarak çalışan LibreHardwareMonitor ile okunabilir."
 lhm = "Gelişmiş sensörler (LibreHardwareMonitor)"
