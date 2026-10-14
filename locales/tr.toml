@@ -245,3 +245,12 @@ open_folder = "Ayar klasörünü aç"
 open_log = "Günlüğü aç"
 inspired = "Tasarım, macOS için Stats'ten esinlenmiştir (Serhiy Mytrovtsiy, MIT)."
 notices = "Üçüncü taraf bildirimleri"
+
+[install]
+already = "Windows Stats zaten kurulum klasöründen çalışıyor."
+failed = "Kurulum başarısız oldu: {err}"
+autostart = "Windows Stats, Windows'ta oturum açtığınızda otomatik başlasın mı?"
+done = "Windows Stats {dir} klasörüne kuruldu ve başlatıldı. Başlat menüsünde bulunur; Ayarlar > Uygulamalar'dan kaldırılabilir."
+confirm_uninstall = "Windows Stats bu bilgisayardan kaldırılsın mı?"
+remove_settings = "Windows Stats ayarlarınız ve günlük dosyası da silinsin mi?"
+removed = "Windows Stats kaldırıldı. Görev çubuğu eski haline döndü."

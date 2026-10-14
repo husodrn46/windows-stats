@@ -240,11 +240,18 @@ pub fn autostart_enabled() -> bool {
 }
 
 pub fn set_autostart(enable: bool) -> bool {
+    match std::env::current_exe() {
+        Ok(exe) => set_autostart_path(&exe, enable),
+        Err(_) => false,
+    }
+}
+
+/// Start `exe` with the user's Windows sign-in (HKCU Run), or stop doing so.
+pub fn set_autostart_path(exe: &std::path::Path, enable: bool) -> bool {
     let k = wide(RUN_KEY);
     let v = wide(RUN_VALUE);
     unsafe {
         if enable {
-            let Ok(exe) = std::env::current_exe() else { return false };
             let data = wide(&format!("\"{}\"", exe.display()));
             RegSetKeyValueW(HKEY_CURRENT_USER, pcwstr(&k), pcwstr(&v), REG_SZ.0, Some(data.as_ptr() as *const _), (data.len() * 2) as u32) == ERROR_SUCCESS
         } else {

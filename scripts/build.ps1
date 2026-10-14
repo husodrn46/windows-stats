@@ -60,6 +60,7 @@ if (-not $NoPackage) {
     Copy-Item (Join-Path $root 'THIRD-PARTY-NOTICES.md') (Join-Path $dist 'THIRD-PARTY-NOTICES.txt')
     Copy-Item (Join-Path $root 'README.md') (Join-Path $dist 'README.md')
     Copy-Item -Recurse (Join-Path $root 'licenses') (Join-Path $dist 'licenses')
+    Copy-Item (Join-Path $root 'scripts\Kur.cmd') (Join-Path $dist 'Kur.cmd')
     # optional sensor helper (LibreHardwareMonitorLib): needs the .NET SDK to build
     if (Get-Command dotnet -ErrorAction SilentlyContinue) {
         & dotnet build (Join-Path $root 'helpers\sensors\WindowsStats.Sensors.csproj') -c Release --nologo -v quiet

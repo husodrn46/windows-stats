@@ -246,3 +246,12 @@ open_folder = "Open the settings folder"
 open_log = "Open the log"
 inspired = "Design inspired by Stats for macOS (Serhiy Mytrovtsiy, MIT)."
 notices = "Third-party notices"
+
+[install]
+already = "Windows Stats is already running from its installation folder."
+failed = "Installation failed: {err}"
+autostart = "Start Windows Stats when you sign in to Windows?"
+done = "Windows Stats is installed in {dir} and has been started. It is in the Start menu and can be removed in Settings > Apps."
+confirm_uninstall = "Remove Windows Stats from this computer?"
+remove_settings = "Also delete your Windows Stats settings and log?"
+removed = "Windows Stats has been removed. The taskbar is back to normal."

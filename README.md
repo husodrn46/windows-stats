@@ -5,49 +5,97 @@ uygulaması. macOS'taki [Stats](https://github.com/exelban/stats) uygulamasında
 [winstats](https://github.com/mgvs/winstats) (Oleksandr Zhabotynskyi, MIT) temel alınarak
 geliştirilmiştir.
 
-> Durum: **Faz 1** (çalışan Windows uygulaması). Tasarım, ayarlar penceresi, sensörler ve kurulum
-> paketi sonraki fazlarda eklenecek.
+- **Görev çubuğunun içinde** çalışan şerit: CPU (çekirdek başına çubuklar, P/E çekirdek ayrımı,
+  geçmiş grafiği), GPU, RAM, disk, ağ, pil ve sıcaklık widget'ları. Windows görev çubuğuna gömmeye
+  izin vermezse aynı yerde **yüzen** şerit olarak çalışır.
+- Widget'a tıklayınca **ayrıntılı panel**: geçmiş grafikleri, en çok kaynak kullanan işlemler,
+  çekirdekler ve frekanslar, bellek modülleri, fiziksel diskler (SSD/HDD, sıcaklık), sürücüler, ağ
+  bağdaştırıcıları (Wi-Fi ağı, IP, MAC, hız), pil, sensörler.
+- **Ayarlar penceresi** (sağ tık > Ayarlar…): widget seçimi ve sıralaması, renkler, tema
+  (sistem/koyu/açık), yazı ve grafik boyutları, güncelleme aralığı (0,5 / 1 / 2 / 5 sn), konum,
+  Windows ile başlatma, eşik bildirimleri, sensörler, gizlilik.
+- **Bildirimler**: örneğin "İşlemci sıcaklığı 30 sn boyunca 85 °C üzerinde kalırsa uyar".
+  Ölçülemeyen değerler hiçbir zaman bildirim üretmez.
+- Tamamen **Türkçe** arayüz (Windows dili Türkçe ise otomatik), Türkçe birimler (KB/sn, 1,5 GB).
 
-## Özellikler (Faz 1)
+## Kurulum
 
-- Görev çubuğunun içine gömülü şerit (Windows 11 dahil); Explorer yeniden başladığında kendini
-  yeniden bağlar.
-- CPU (çekirdek başına çubuklar, P/E çekirdek ayrımı, geçmiş grafiği, frekans), RAM, GPU, disk,
-  ağ ve pil widget'ları; tıklanınca ayrıntılı paneller (en çok kaynak kullanan işlemler, diskler,
-  ağ bağdaştırıcıları, bellek modülleri).
-- CPU yükü Görev Yöneticisi ile aynı yöntemle hesaplanır (`% Processor Utility`).
-- Sağ tık menüsünden özelleştirme: widget seçimi, renkler, yazı boyutu, grafik genişliği, konum,
-  güncelleme aralığı (0,5 / 1 / 2 / 5 sn), tema (sistem / koyu / açık), dil, Windows ile başlatma.
-- Widget'lar sürüklenerek sıralanır; tüm ayarlar `%APPDATA%\WindowsStats\config.toml` içinde saklanır.
-- Tamamen Türkçe arayüz (Windows dili Türkçe ise otomatik).
+Yönetici izni gerekmez, yalnızca sizin kullanıcı hesabınıza kurulur.
+
+1. `WindowsStats-<sürüm>-x64.zip` dosyasını bir klasöre açın.
+2. `Kur.cmd` dosyasına çift tıklayın. Program `%LOCALAPPDATA%\Programs\Windows Stats` klasörüne
+   kopyalanır, Başlat menüsüne eklenir ve isterseniz Windows ile birlikte başlar.
+3. **Kaldırma:** Ayarlar > Uygulamalar > Windows Stats > Kaldır. Görev çubuğu eski haline döner;
+   ayarlarınızın silinip silinmeyeceği sorulur.
+
+Kurmadan denemek için `WindowsStats.exe` doğrudan da çalıştırılabilir.
+
+## Kullanım
+
+- **Sol tık:** widget'ın ayrıntılı paneli. **Sağ tık:** hızlı ayar menüsü (en üstte *Ayarlar…*).
+- **Sürükle-bırak:** widget'ları şerit üzerinde sürükleyerek sıralayın.
+- **Çift tık:** Görev Yöneticisi.
+- Windows 11'de şerit, görev listesinin düğmelerine binmez. Seçilen tarafta yer yoksa diğer
+  tarafa geçer, orada da yetmezse sondaki widget'lar yer açılana kadar gizlenir.
+
+## Sensörler
+
+| Değer | Kaynak | Yönetici izni / sürücü |
+|---|---|---|
+| Disk sıcaklığı, SSD/HDD | Windows depolama sorgusu | Gerekmez |
+| GPU sıcaklığı, fan | Ekran kartı sürücüsü (Görev Yöneticisi'nin kaynağı) | Gerekmez (harici GPU'larda) |
+| GPU saat hızı, voltaj, ek değerler | LibreHardwareMonitor yardımcısı | Gerekmez |
+| İşlemci sıcaklığı, güç, fanlar, anakart voltajları | LibreHardwareMonitor + PawnIO sürücüsü | **Gerekir** |
+
+Gelişmiş sensörler varsayılan olarak kapalıdır (**Ayarlar > Sensörler**). Açıldığında ayrı bir
+süreç olan `sensors\WindowsStats.Sensors.exe` çalışır (yaklaşık 80–100 MB bellek). Windows Stats
+**hiçbir sürücüyü kendisi kurmaz**. İşlemci sıcaklığı için PawnIO'yu
+[resmî sitesinden](https://pawnio.eu) kendiniz kurmanız ve "Yardımcıyı yönetici olarak çalıştır"
+seçeneğini açmanız gerekir (her açılışta UAC onayı). Desteklenmeyen sensörler sahte değer yerine
+**"Bu cihazda kullanılamıyor"** olarak görünür.
 
 ## Gizlilik ve güvenlik
 
-- Telemetri, analitik veya otomatik güncelleme kontrolü **yoktur**; uygulama hiçbir ağ bağlantısı
-  açmaz ve port dinlemez. (Ağ panelindeki gecikme ölçümü yalnızca kullanıcı `ping_host` ayarına bir
-  adres yazarsa çalışır.)
-- Yönetici izni istemez (`asInvoker`), sürücü kurmaz, sistem ayarlarını değiştirmez. "Windows ile
-  başlat" yalnızca kullanıcıya ait `HKCU\...\Run` anahtarını kullanır.
+- Telemetri, analitik ve otomatik güncelleme kontrolü **yoktur**. Uygulama ağ portu açmaz ve
+  internet bağlantısı gerektirmez.
+- Tek isteğe bağlı ağ işlemi ağ panelindeki gecikme ölçümüdür. Varsayılan olarak kapalıdır ve
+  açıldığında yalnızca seçtiğiniz adrese ICMP gönderir.
+- Yönetici izni istemez (`asInvoker`). Yalnızca kullanıcıya ait anahtarları (`HKCU`) kullanır.
 - Ölçümler ayrı bir iş parçacığında yapılır; görev çubuğuna gömülü pencere hiçbir zaman ölçüm
-  beklemez (Explorer'ın donmasını önlemek için).
+  beklemez. Böylece Explorer'ın donması önlenir. Explorer yeniden başlarsa şerit kendini yeniden
+  bağlar.
+- Ayarlar `%APPDATA%\WindowsStats\config.toml` dosyasında, günlük ise `WindowsStats.log`
+  dosyasında tutulur.
 
 ## Derleme
 
-Gereken: Rust (GNU hedefi) ve kaynak derleyici `windres`. Proje, yönetici izni gerektirmeyen yerel
-bir araç zinciriyle derlenir (`.toolchain`, git'e dahil değildir):
+Yönetici izni gerektirmeyen, proje içi bir araç zinciri kullanılır (`.toolchain`, git'e dahil
+değildir):
+
+- Rust 1.99, `x86_64-pc-windows-gnu`: `rustup-init.exe -y --no-modify-path --default-host x86_64-pc-windows-gnu`
+  ile `RUSTUP_HOME`/`CARGO_HOME` değişkenleri `.toolchain\rustup` ve `.toolchain\cargo` gösterecek
+  şekilde kurulur.
+- [llvm-mingw](https://github.com/mstorsjo/llvm-mingw): yalnızca simge ve manifest için `windres`.
+  `.toolchain\llvm-mingw` klasörüne açılır.
+- .NET SDK 8+ (yalnızca isteğe bağlı sensör yardımcısı için).
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\build.ps1 -Test
 ```
 
-Çıktı: `target\release\WindowsStats.exe` ve `dist\WindowsStats-<sürüm>-x64.zip`.
+Çıktı: `target\release\WindowsStats.exe` ve `dist\WindowsStats-<sürüm>-x64.zip` (uygulama,
+sensör yardımcısı, lisanslar, `Kur.cmd`).
 
 ## Komut satırı
 
 ```
-WindowsStats.exe                  # başlat
-WindowsStats.exe --dump 10 1000   # 10 ölçümü JSON satırları olarak yazdır (test için)
-WindowsStats.exe --quit           # çalışan uygulamayı temiz biçimde kapat
+WindowsStats.exe                   başlat
+WindowsStats.exe --settings        ayarlar penceresini aç
+WindowsStats.exe --install         kullanıcıya özel kur (--quiet: soru sormadan)
+WindowsStats.exe --uninstall       kaldır (--quiet: soru sormadan, ayarlar korunur)
+WindowsStats.exe --quit            çalışan uygulamayı temiz biçimde kapat
+WindowsStats.exe --dump 10 1000    10 ölçümü JSON satırları olarak yazdır
+WindowsStats.exe --taskbar-items   görev çubuğu öğelerini listele (tanı)
 WindowsStats.exe --version
 ```
 
@@ -58,7 +106,9 @@ cargo test --release                                                   # birim t
 powershell -ExecutionPolicy Bypass -File scripts\compare-taskmgr.ps1   # Görev Yöneticisi sayaçlarıyla karşılaştırma
 ```
 
+`tools\uitest` arayüz testleri için ekran yakalama ve fare yardımcısıdır (dağıtıma dahil değildir).
+
 ## Lisans
 
 MIT. Ayrıntılar ve kullanılan açık kaynak bileşenler: [LICENSE](LICENSE),
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), `licenses\`.

@@ -12,6 +12,7 @@ mod collector;
 mod config;
 mod dwtext;
 mod i18n;
+mod install;
 mod menu;
 mod metrics;
 mod about;
@@ -205,6 +206,10 @@ fn main() {
         return;
     }
     util::rotate_log();
+    // a crash leaves its reason in the log (release builds abort right after this hook)
+    std::panic::set_hook(Box::new(|info| {
+        log!("PANIC: {info}");
+    }));
     let first_run = !Config::path().exists();
     let mut cfg = Config::load();
     widgets::normalize(&mut cfg.widgets);
@@ -324,6 +329,11 @@ fn main() {
         })
     });
 
+    // Windows restarts the app after a crash or a hang (once it has run for a minute)
+    unsafe {
+        use windows::Win32::System::Recovery::{RegisterApplicationRestart, RESTART_NO_PATCH, RESTART_NO_REBOOT};
+        let _ = RegisterApplicationRestart(PCWSTR::null(), RESTART_NO_PATCH | RESTART_NO_REBOOT);
+    }
     log!(
         "Windows Stats {} started (Windows build {}, win11={}, floating={}, language={})",
         about::VERSION,

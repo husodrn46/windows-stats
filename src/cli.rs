@@ -66,6 +66,16 @@ pub fn run(args: &[String]) -> bool {
             crate::OPEN_SETTINGS_AT_START.store(true, std::sync::atomic::Ordering::Relaxed);
             false
         }
+        "--install" => {
+            crate::i18n::set_language(&crate::config::Config::load_readonly().language);
+            crate::install::install(args.iter().any(|a| a == "--quiet"));
+            true
+        }
+        "--uninstall" => {
+            crate::i18n::set_language(&crate::config::Config::load_readonly().language);
+            crate::install::uninstall(args.iter().any(|a| a == "--quiet"));
+            true
+        }
         "--quit" => {
             attach_console();
             let found = quit_running();

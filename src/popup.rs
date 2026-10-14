@@ -771,7 +771,8 @@ impl Ui<'_> {
     /// Single 0..1 series.
     fn chart(&mut self, values: &[f32], h_dip: f32, color: Color) {
         let (x, y, w, h) = self.chart_box(h_dip);
-        self.c.line_chart(x, y, w, h, values, color, color.alpha(0.3));
+        let lw = (1.5 * self.t.scale).max(1.0);
+        self.c.area_chart(x, y, w, h, values, color, color.alpha(0.4), lw, false);
     }
 
     /// Two series sharing an automatic scale (bytes/s etc).
@@ -780,8 +781,9 @@ impl Ui<'_> {
         let na: Vec<f32> = a.iter().map(|v| v / max).collect();
         let nb: Vec<f32> = b.iter().map(|v| v / max).collect();
         let (x, y, w, h) = self.chart_box(h_dip);
-        self.c.line_chart(x, y, w, h, &na, ca, ca.alpha(0.3));
-        self.c.line_chart(x, y, w, h, &nb, cb, cb.alpha(0.3));
+        let lw = (1.5 * self.t.scale).max(1.0);
+        self.c.area_chart(x, y, w, h, &na, ca, ca.alpha(0.3), lw, false);
+        self.c.area_chart(x, y, w, h, &nb, cb, cb.alpha(0.3), lw, false);
         max
     }
 

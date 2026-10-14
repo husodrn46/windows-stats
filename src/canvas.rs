@@ -210,49 +210,6 @@ impl Canvas {
         }
     }
 
-    /// Filled line chart: `values` in 0..1, right-aligned in the box. With fewer samples than
-    /// columns the series is stretched across the full width (linear interpolation); with more,
-    /// the last `w` samples are drawn one per column.
-    pub fn line_chart(&mut self, x: i32, y: i32, w: i32, h: i32, values: &[f32], line: Color, fill: Color) {
-        if w <= 0 || h <= 0 || values.is_empty() {
-            return;
-        }
-        let stretched: Vec<f32>;
-        let series: &[f32] = if values.len() >= 2 && (values.len() as i32) < w {
-            let n = values.len();
-            stretched = (0..w)
-                .map(|i| {
-                    let pos = i as f32 * (n - 1) as f32 / (w - 1).max(1) as f32;
-                    let a = pos.floor() as usize;
-                    let b = (a + 1).min(n - 1);
-                    let t = pos - a as f32;
-                    values[a] * (1.0 - t) + values[b] * t
-                })
-                .collect();
-            &stretched
-        } else {
-            values
-        };
-        let n = series.len().min(w as usize);
-        let start = series.len() - n;
-        let x0 = x + w - n as i32;
-        let mut prev_top: Option<i32> = None;
-        for (i, v) in series[start..].iter().enumerate() {
-            let col = x0 + i as i32;
-            let vh = v.clamp(0.0, 1.0) * h as f32;
-            self.fill_bar(col, y + h, 1, vh, fill);
-            let top = (y + h - vh.round() as i32).clamp(y, y + h - 1);
-            self.blend_px(col, top, line, 1.0);
-            if let Some(pt) = prev_top {
-                let (a, b) = if pt < top { (pt, top) } else { (top, pt) };
-                for yy in a..b {
-                    self.blend_px(col, yy, line, 0.6);
-                }
-            }
-            prev_top = Some(top);
-        }
-    }
-
     /// Area chart in the style of Stats: an antialiased line over a fill that fades towards the
     /// baseline. `values` are 0..1, right-aligned (newest at the right edge), resampled to the
     /// columns like `line_chart`. `fill` carries the colour and opacity right under the line;
