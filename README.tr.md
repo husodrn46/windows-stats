@@ -100,14 +100,16 @@ Kurmadan denemek için `WindowsStats.exe` doğrudan da çalıştırılabilir.
 | Disk sıcaklığı, SSD/HDD | Windows depolama sorgusu | Gerekmez |
 | GPU sıcaklığı, fan | Ekran kartı sürücüsü (Görev Yöneticisi'nin kaynağı) | Gerekmez (harici GPU'larda) |
 | GPU saat hızı, voltaj, ek değerler | LibreHardwareMonitor yardımcısı | Gerekmez |
-| İşlemci sıcaklığı, güç, fanlar, anakart voltajları | LibreHardwareMonitor + PawnIO sürücüsü | **Gerekir** |
+| İşlemci sıcaklığı, güç, fanlar, anakart voltajları | LibreHardwareMonitor + PawnIO sürücüsü | **Yönetici izni gerekir; bu imzasız sürümde etkin değil** |
 
 Gelişmiş sensörler varsayılan olarak kapalıdır (**Ayarlar > Sensörler**). Açıldığında ayrı bir
-süreç olan `sensors\WindowsStats.Sensors.exe` çalışır (yaklaşık 80–100 MB bellek). Windows Stats
-**hiçbir sürücüyü kendisi kurmaz**. İşlemci sıcaklığı için PawnIO'yu
-[resmî sitesinden](https://pawnio.eu) kendiniz kurmanız ve "Yardımcıyı yönetici olarak çalıştır"
-seçeneğini açmanız gerekir (her açılışta UAC onayı). Desteklenmeyen sensörler sahte değer yerine
-**"Bu cihazda kullanılamıyor"** olarak görünür.
+süreç olan `sensors\WindowsStats.Sensors.exe` kullanıcı yetkileriyle çalışır (yaklaşık 80–100 MB
+bellek). Windows Stats **hiçbir sürücüyü kendisi kurmaz**. **Yönetici olarak çalıştırma güvenlik
+nedeniyle kapalıdır:** imzasız yardımcı dosya kullanıcı tarafından değiştirilebilen bir klasörde
+bulunduğu için yükseltilmiş yetkiyle başlatılması güvenli değildir. PawnIO'yu
+[resmî sitesinden](https://pawnio.eu) ayrıca kurmuş olsanız bile işlemci sıcaklığı ve yalnızca
+PawnIO ile okunabilen bazı değerler kullanılamayabilir. Desteklenmeyen sensörler sahte değer
+yerine **"Bu cihazda kullanılamıyor"** olarak görünür.
 
 ## Gizlilik ve güvenlik
 
@@ -170,7 +172,7 @@ powershell -ExecutionPolicy Bypass -File scripts\compare-taskmgr.ps1   # Görev 
 
 **SmartScreen veya antivirüs neden uyarı veriyor?** Uygulama şu an kod imzalı değil. SmartScreen tanınmayan yayıncı uyarısı verebilir; antivirüsler yeni bir sürümü sezgisel olarak işaretleyebilir. Yalnızca bu deponun Releases sayfasından indirin. İşaretlenen dosyayı inceleme için ilgili üreticiye gönderin; korumayı kapatmayın ve her uyarının yanlış pozitif olduğunu varsaymayın.
 
-**CPU sıcaklığı neden görünmüyor?** Gelişmiş CPU sensörleri için isteğe bağlı LibreHardwareMonitor yardımcısı ve ayrıca kurulmuş PawnIO sürücüsü gerekir. Ayarlar > Sensörler bölümünden yardımcıyı ve gerekiyorsa yönetici modunu açın. Windows Stats kendiliğinden sürücü kurmaz. Donanım desteği değişir; okunamayan değerler kullanılamıyor olarak gösterilir.
+**CPU sıcaklığı neden görünmüyor?** Gelişmiş CPU sensörleri için isteğe bağlı LibreHardwareMonitor yardımcısı ve ayrıca kurulmuş PawnIO sürücüsü gerekir. Ayarlar > Sensörler bölümünden yardımcıyı açın. Güvenlik nedeniyle bu imzasız sürüm yönetici modunu desteklemez. Windows Stats kendiliğinden sürücü kurmaz. Donanım desteği değişir; okunamayan değerler kullanılamıyor olarak gösterilir.
 
 **Şerit her monitörde gösterilebilir mi?** Şerit şu an yalnızca ana monitörün görev çubuğunda görünür. Birden fazla monitörde şerit desteklenmiyor.
 

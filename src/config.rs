@@ -72,9 +72,6 @@ pub struct Config {
     pub alerts: Vec<crate::alerts::Rule>,
     /// Advanced sensors through the optional LibreHardwareMonitor helper process (off by default).
     pub lhm_sensors: bool,
-    /// start the helper with administrator rights (a UAC prompt at every start); needed with
-    /// the PawnIO driver for CPU temperatures, fans and voltages
-    pub lhm_elevated: bool,
 }
 
 impl Default for Config {
@@ -117,7 +114,6 @@ impl Default for Config {
             ping_host: String::new(),
             alerts: crate::alerts::default_rules(),
             lhm_sensors: false,
-            lhm_elevated: false,
         }
     }
 }
@@ -275,6 +271,15 @@ mod tests {
         assert_eq!(c.chart_width, 200);
         let c = Config::parse("update_ms = 4000\n").unwrap();
         assert_eq!(c.update_ms, 5000);
+    }
+
+    #[test]
+    fn legacy_elevated_sensor_flag_is_not_persisted() {
+        // Older versions offered an unsafe elevation switch. Loading that saved value
+        // must not restore an administrator launch capability.
+        let c = Config::parse("lhm_sensors = true\nlhm_elevated = true\n").unwrap();
+        assert!(c.lhm_sensors);
+        assert!(!c.to_document().unwrap().contains("lhm_elevated"));
     }
 
     #[test]

@@ -28,7 +28,6 @@ pub struct Settings {
     pub cpu_utility: bool,
     /// run the LibreHardwareMonitor helper
     pub lhm: bool,
-    pub lhm_elevated: bool,
 }
 
 impl Settings {
@@ -42,7 +41,6 @@ impl Settings {
             group_pe: cfg.group_pe_cores,
             cpu_utility: cfg.cpu_utility,
             lhm: cfg.lhm_sensors,
-            lhm_elevated: cfg.lhm_elevated,
         }
     }
 }
@@ -147,7 +145,7 @@ fn run(rx: Receiver<Cmd>, latest: Arc<Mutex<Option<MetricsData>>>, posted: Arc<A
     let mut host: Option<crate::sensorhost::SensorHost> = None;
     let sync_host = |host: &mut Option<crate::sensorhost::SensorHost>, s: &Settings| {
         if s.lhm && host.is_none() {
-            *host = crate::sensorhost::SensorHost::start(s.interval_ms.max(2000), s.lhm_elevated);
+            *host = crate::sensorhost::SensorHost::start(s.interval_ms.max(2000));
         } else if !s.lhm {
             *host = None;
         }
@@ -185,10 +183,6 @@ fn run(rx: Receiver<Cmd>, latest: Arc<Mutex<Option<MetricsData>>>, posted: Arc<A
                 }
                 if s.interval_ms != settings.interval_ms {
                     next = Instant::now() + interval(&s);
-                }
-                if s.lhm_elevated != settings.lhm_elevated {
-                    // restart the helper with the other rights
-                    host = None;
                 }
                 sync_host(&mut host, &s);
                 settings = s;
