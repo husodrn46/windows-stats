@@ -1,5 +1,7 @@
 # Windows Stats: Geliştirme Raporu (sürüm 0.1.0)
 
+[English](REPORT.md) · **Türkçe**
+
 Test ortamı: Windows 11 Home Single Language, **derleme 26300 (Insider)**, Intel Core 7 240H
 (16 mantıksal çekirdek, P/E hibrit), Intel Graphics (tümleşik), 16 GB RAM, iki NVMe SSD,
 1920×1080 %100 ölçek, tek monitör, pilsiz mini bilgisayar. Antivirüs: Kaspersky Small Office Security.

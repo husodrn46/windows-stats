@@ -59,6 +59,7 @@ if (-not $NoPackage) {
     Copy-Item (Join-Path $root 'LICENSE') (Join-Path $dist 'LICENSE.txt')
     Copy-Item (Join-Path $root 'THIRD-PARTY-NOTICES.md') (Join-Path $dist 'THIRD-PARTY-NOTICES.txt')
     Copy-Item (Join-Path $root 'README.md') (Join-Path $dist 'README.md')
+    Copy-Item (Join-Path $root 'README.tr.md') (Join-Path $dist 'README.tr.md')
     Copy-Item -Recurse (Join-Path $root 'licenses') (Join-Path $dist 'licenses')
     Copy-Item (Join-Path $root 'scripts\Kur.cmd') (Join-Path $dist 'Kur.cmd')
     # optional sensor helper (LibreHardwareMonitorLib): needs the .NET SDK to build
