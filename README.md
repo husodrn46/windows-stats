@@ -128,7 +128,9 @@ as CPU temperatures may therefore be unavailable, even if you separately install
 - **No** telemetry, analytics or automatic update checks. No network ports, no internet connection
   needed.
 - The only optional network activity is the latency measurement in the network panel. It is off by
-  default, and when switched on it sends ICMP echo requests only to the address you choose.
+  default. While the network panel is open, it sends ICMP echo requests only to the address you
+  choose. Hostnames may require a DNS lookup. It never falls back to TCP or probes adapter DNS
+  servers or gateways; if ICMP is blocked, latency is unavailable.
 - Never asks for administrator rights (`asInvoker`); uses only per-user keys (`HKCU`).
 - Measuring runs on its own thread, so the window embedded in the taskbar never waits for it and
   cannot make Explorer hang. When Explorer restarts, the strip reattaches by itself.

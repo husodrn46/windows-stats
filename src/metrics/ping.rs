@@ -1,10 +1,9 @@
 //! Round-trip time to a host, measured only while the network popup is open: the latency and
-//! jitter rows. ICMP echo to the configured host first; when that gets no replies, a TCP
-//! connect to the same host (ICMP is often filtered), then the local DNS servers and the default
-//! gateway from the adapter settings. The primary host is retried every 30 s.
+//! jitter rows. Sends ICMP echo only to the configured host. ICMP failures do not trigger
+//! alternative protocols or probes to the adapter's DNS servers or gateways.
 
 use std::collections::VecDeque;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
@@ -13,15 +12,14 @@ use windows::Win32::NetworkManagement::IpHelper::{IcmpCreateFile, IcmpSendEcho, 
 
 /// replies the jitter is averaged over
 const WINDOW: usize = 10;
-/// probes without a reply before the method / target changes
+/// consecutive misses before the stale measurement is hidden
 const GIVE_UP: u32 = 3;
-const RETRY_PRIMARY: Duration = Duration::from_secs(30);
 const TIMEOUT_MS: u32 = 2000;
 
 struct State {
     active: bool,
     host: String,
-    /// what is being measured right now, e.g. "1.1.1.1", "1.1.1.1 · TCP", "10.0.0.1"
+    /// the user-configured host currently being measured
     target: String,
     rtts: VecDeque<f32>,
     last: Option<f32>,
@@ -48,7 +46,7 @@ impl Ping {
     pub fn set(&self, active: bool, host: &str) {
         let (m, cv) = &*self.st;
         let mut s = m.lock().unwrap();
-        let on = active && !host.is_empty();
+        let on = active && !host.trim().is_empty();
         if s.host != host || (s.active && !on) {
             s.host = host.to_string();
             s.target.clear();
@@ -79,42 +77,28 @@ impl Ping {
     }
 }
 
-struct Target {
-    label: String,
-    ip: Ipv4Addr,
-    /// port for the TCP fallback
-    port: u16,
+/// A probe has exactly one possible protocol and destination: ICMP to the user-selected
+/// host. Keeping the plan typed makes adding an implicit fallback a deliberate change.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Probe {
+    Icmp(Ipv4Addr),
 }
 
-/// The configured host, then the IPv4 DNS servers and gateways of the adapters that are up.
-fn targets(primary: &str) -> Vec<Target> {
-    let mut v: Vec<Target> = Vec::new();
-    if let Some(ip) = resolve(primary) {
-        v.push(Target { label: primary.to_string(), ip, port: 443 });
+fn configured_probe(host: &str) -> Option<Probe> {
+    // On Windows an empty hostname can resolve to a local interface address.
+    // Never let blank input select an implicit destination.
+    let host = host.trim();
+    if host.is_empty() {
+        return None;
     }
-    let (dns, gw) = local_servers();
-    for ip in dns {
-        if !v.iter().any(|t| t.ip == ip) {
-            v.push(Target { label: ip.to_string(), ip, port: 53 });
-        }
-    }
-    for ip in gw {
-        if !v.iter().any(|t| t.ip == ip) {
-            v.push(Target { label: ip.to_string(), ip, port: 80 });
-        }
-    }
-    v
+    resolve(host).map(Probe::Icmp)
 }
 
 fn run(st: Arc<(Mutex<State>, Condvar)>) {
     let (m, cv) = &*st;
     let mut handle: Option<HANDLE> = None;
     let mut host = String::new();
-    let mut list: Vec<Target> = Vec::new();
-    let mut idx = 0usize;
-    let mut tcp = false;
-    let mut misses = 0u32;
-    let mut primary_tried = Instant::now();
+    let mut probe: Option<Probe> = None;
     loop {
         let cur_host = {
             let mut s = m.lock().unwrap();
@@ -123,35 +107,21 @@ fn run(st: Arc<(Mutex<State>, Condvar)>) {
             }
             s.host.clone()
         };
-        if cur_host != host || list.is_empty() {
+        if cur_host != host {
             host = cur_host;
-            list = targets(&host);
-            idx = 0;
-            tcp = false;
-            misses = 0;
+            probe = configured_probe(&host);
         }
         if handle.is_none() {
             handle = unsafe { IcmpCreateFile() }.ok();
         }
-        // while on a fallback, see now and then whether the configured host is back
-        if (idx > 0 || tcp) && primary_tried.elapsed() >= RETRY_PRIMARY {
-            primary_tried = Instant::now();
-            if let (Some(h), Some(t)) = (handle, list.first()) {
-                if echo(h, t.ip).is_some() {
-                    idx = 0;
-                    tcp = false;
-                    misses = 0;
-                    let mut s = m.lock().unwrap();
-                    s.rtts.clear();
-                }
-            }
-        }
-        let rtt = match list.get(idx) {
-            Some(t) if tcp => tcp_rtt(t),
-            Some(t) => handle.and_then(|h| echo(h, t.ip)),
-            None => None,
+
+        // An unanswered ICMP echo is only a lost sample. Never probe another address,
+        // open a TCP connection, or inspect adapter DNS / gateway configuration.
+        let rtt = match (handle, probe) {
+            (Some(h), Some(Probe::Icmp(ip))) => echo(h, ip),
+            _ => None,
         };
-        let label = list.get(idx).map(|t| format!("{}{}", t.label, if tcp { " \u{00B7} TCP" } else { "" })).unwrap_or_default();
+        let label = if probe.is_some() { host.clone() } else { String::new() };
         {
             let mut s = m.lock().unwrap();
             if s.active && s.host == host {
@@ -165,35 +135,18 @@ fn run(st: Arc<(Mutex<State>, Condvar)>) {
                             s.rtts.pop_front();
                         }
                     }
-                    None => s.lost += 1,
-                }
-            }
-        }
-        match rtt {
-            Some(_) => misses = 0,
-            None => {
-                misses += 1;
-                if misses >= GIVE_UP {
-                    // ICMP -> TCP on the same target, then the next target; wrap around with a
-                    // fresh list (the network may have changed)
-                    misses = 0;
-                    if !tcp && !list.is_empty() {
-                        tcp = true;
-                    } else {
-                        tcp = false;
-                        idx += 1;
-                        if idx >= list.len() {
-                            list = targets(&host);
-                            idx = 0;
+                    None => {
+                        s.lost = s.lost.saturating_add(1);
+                        if s.lost == GIVE_UP {
+                            s.last = None;
+                            s.rtts.clear();
                         }
                     }
-                    let mut s = m.lock().unwrap();
-                    s.rtts.clear();
-                    s.last = None;
                 }
             }
         }
-        // one probe a second; the wait is interruptible so switching off is immediate
+        // One probe a second; interruptible so turning off takes effect after
+        // an in-flight echo completes.
         let s = m.lock().unwrap();
         let _ = cv.wait_timeout(s, Duration::from_secs(1)).unwrap();
     }
@@ -223,75 +176,27 @@ fn echo(h: HANDLE, ip: Ipv4Addr) -> Option<f32> {
     Some(t0.elapsed().as_secs_f32() * 1000.0)
 }
 
-/// Time of a TCP handshake; a refused connection still answers and counts, a timeout or an
-/// unreachable network does not.
-fn tcp_rtt(t: &Target) -> Option<f32> {
-    let addr = SocketAddr::from((t.ip, t.port));
-    let t0 = Instant::now();
-    match TcpStream::connect_timeout(&addr, Duration::from_millis(TIMEOUT_MS as u64)) {
-        Ok(_) => Some(t0.elapsed().as_secs_f32() * 1000.0),
-        Err(e) if e.kind() == std::io::ErrorKind::ConnectionRefused => Some(t0.elapsed().as_secs_f32() * 1000.0),
-        Err(_) => None,
-    }
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-/// (DNS servers, default gateways), IPv4, of the adapters that are up.
-fn local_servers() -> (Vec<Ipv4Addr>, Vec<Ipv4Addr>) {
-    use windows::Win32::NetworkManagement::IpHelper::{
-        GetAdaptersAddresses, GAA_FLAG_INCLUDE_GATEWAYS, GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_MULTICAST, GAA_FLAG_SKIP_UNICAST, IP_ADAPTER_ADDRESSES_LH,
-    };
-    use windows::Win32::NetworkManagement::Ndis::IfOperStatusUp;
-    use windows::Win32::Networking::WinSock::{AF_INET, SOCKADDR, SOCKADDR_IN};
-    const IF_TYPE_SOFTWARE_LOOPBACK: u32 = 24;
-    let mut dns = Vec::new();
-    let mut gw = Vec::new();
-    let v4 = |sa: *const SOCKADDR| -> Option<Ipv4Addr> {
-        unsafe {
-            if sa.is_null() || (*sa).sa_family != AF_INET {
-                return None;
-            }
-            let b = (*(sa as *const SOCKADDR_IN)).sin_addr.S_un.S_un_b;
-            let ip = Ipv4Addr::new(b.s_b1, b.s_b2, b.s_b3, b.s_b4);
-            (!ip.is_loopback() && !ip.is_unspecified()).then_some(ip)
-        }
-    };
-    unsafe {
-        let flags = GAA_FLAG_INCLUDE_GATEWAYS | GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_UNICAST;
-        let mut size = 16 * 1024u32;
-        let mut buf = vec![0u8; size as usize];
-        let mut r = GetAdaptersAddresses(AF_INET.0 as u32, flags, None, Some(buf.as_mut_ptr() as *mut _), &mut size);
-        if r == 111 {
-            buf.resize(size as usize, 0);
-            r = GetAdaptersAddresses(AF_INET.0 as u32, flags, None, Some(buf.as_mut_ptr() as *mut _), &mut size);
-        }
-        if r != 0 {
-            return (dns, gw);
-        }
-        let mut p = buf.as_ptr() as *const IP_ADAPTER_ADDRESSES_LH;
-        while !p.is_null() {
-            let a = &*p;
-            if a.OperStatus == IfOperStatusUp && a.IfType != IF_TYPE_SOFTWARE_LOOPBACK {
-                let mut d = a.FirstDnsServerAddress;
-                while !d.is_null() {
-                    if let Some(ip) = v4((*d).Address.lpSockaddr) {
-                        if !dns.contains(&ip) {
-                            dns.push(ip);
-                        }
-                    }
-                    d = (*d).Next;
-                }
-                let mut g = a.FirstGatewayAddress;
-                while !g.is_null() {
-                    if let Some(ip) = v4((*g).Address.lpSockaddr) {
-                        if !gw.contains(&ip) {
-                            gw.push(ip);
-                        }
-                    }
-                    g = (*g).Next;
-                }
-            }
-            p = a.Next;
-        }
+    #[test]
+    fn configured_ipv4_produces_only_icmp_to_that_address() {
+        let expected = Ipv4Addr::new(192, 0, 2, 42);
+        assert_eq!(configured_probe("192.0.2.42"), Some(Probe::Icmp(expected)));
     }
-    (dns, gw)
+
+    #[test]
+    fn changing_the_host_replaces_the_destination() {
+        let first = configured_probe("192.0.2.42");
+        let second = configured_probe("198.51.100.7");
+        assert_ne!(first, second);
+        assert_eq!(second, Some(Probe::Icmp(Ipv4Addr::new(198, 51, 100, 7))));
+    }
+
+    #[test]
+    fn empty_host_cannot_trigger_network_probes() {
+        assert_eq!(configured_probe(""), None);
+        assert_eq!(configured_probe("   "), None);
+    }
 }
