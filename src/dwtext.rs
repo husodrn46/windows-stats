@@ -148,12 +148,20 @@ fn has_family(factory: &IDWriteFactory2, name: &str) -> bool {
     }
 }
 
+/// Segoe UI Variable (optical sizes Small / Text) on Windows 11, Segoe UI on Windows 10.
+fn default_families(factory: &IDWriteFactory2) -> (Vec<u16>, Vec<u16>) {
+    if has_family(factory, FAMILY_SMALL) && has_family(factory, FAMILY_TEXT) {
+        (wide(FAMILY_SMALL), wide(FAMILY_TEXT))
+    } else {
+        (wide(FAMILY_FALLBACK), wide(FAMILY_FALLBACK))
+    }
+}
+
 impl TextEngine {
     pub fn new() -> Option<Self> {
         unsafe {
             let factory: IDWriteFactory2 = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED).ok()?;
-            let variable = has_family(&factory, FAMILY_SMALL) && has_family(&factory, FAMILY_TEXT);
-            let families = if variable { (wide(FAMILY_SMALL), wide(FAMILY_TEXT)) } else { (wide(FAMILY_FALLBACK), wide(FAMILY_FALLBACK)) };
+            let families = default_families(&factory);
             // tabular figures: numbers keep their width as they change, nothing jiggles
             let typography = factory.CreateTypography().ok();
             if let Some(t) = &typography {
@@ -161,9 +169,32 @@ impl TextEngine {
             }
             let out = Rc::new(RefCell::new(Vec::new()));
             let renderer: IDWriteTextRenderer = MaskRenderer { factory: factory.clone(), out: out.clone() }.into();
-            crate::log!("text: DirectWrite, {}", if variable { "Segoe UI Variable" } else { FAMILY_FALLBACK });
+            crate::log!("text: DirectWrite, {}", String::from_utf16_lossy(&families.1[..families.1.len() - 1]));
             Some(Self { factory, families, formats: HashMap::new(), typography, renderer, out, measured: HashMap::new(), masks: HashMap::new() })
         }
+    }
+
+    /// Use `name` for all text (empty = the default families). A family that is not installed
+    /// falls back to the default; returns whether `name` was used.
+    pub fn set_family(&mut self, name: &str) -> bool {
+        let wanted = !name.is_empty() && has_family(&self.factory, name);
+        if !name.is_empty() && !wanted {
+            crate::log!("text: font family {name} is not installed, using the default");
+        }
+        let families = if wanted { (wide(name), wide(name)) } else { default_families(&self.factory) };
+        if families != self.families {
+            self.families = families;
+            self.formats.clear();
+            self.measured.clear();
+            self.masks.clear();
+            crate::log!("text: font family {}", if wanted { name } else { "default" });
+        }
+        wanted || name.is_empty()
+    }
+
+    /// Whether a font family is installed.
+    pub fn has_family(&self, name: &str) -> bool {
+        has_family(&self.factory, name)
     }
 
     fn format(&mut self, spec: FontSpec) -> Option<IDWriteTextFormat> {

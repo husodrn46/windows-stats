@@ -414,15 +414,20 @@ impl Ui<'_> {
 
     /// [−] value [+] at the right end of a row, `right_offset` px further left.
     fn stepper(&mut self, row: (i32, i32), right_offset: i32, value: &str, minus: Effect, plus: Effect) {
+        self.stepper_w(row, right_offset, 76.0, ("\u{2212}", "+"), value, minus, plus);
+    }
+
+    /// `stepper` with a value field `value_dip` wide and its own button symbols.
+    fn stepper_w(&mut self, row: (i32, i32), right_offset: i32, value_dip: f32, symbols: (&str, &str), value: &str, minus: Effect, plus: Effect) {
         let f = self.f(12.5, FW_NORMAL);
         let bw = self.t.s(30.0);
-        let vw = self.t.s(76.0);
+        let vw = self.t.s(value_dip);
         let total = bw * 2 + vw;
         let x = self.x + self.w - self.t.s(16.0) - total - right_offset;
         let y = row.0 + (row.1 - bw) / 2;
         let rad = self.t.s(5.0) as f32;
         self.c.fill_round_rect(x, y, total, bw, rad, self.pal.control);
-        for (i, (sym, e)) in [("\u{2212}", minus), ("+", plus)].into_iter().enumerate() {
+        for (i, (sym, e)) in [(symbols.0, minus), (symbols.1, plus)].into_iter().enumerate() {
             let bx = if i == 0 { x } else { x + bw + vw };
             let r = RECT { left: bx, top: y, right: bx + bw, bottom: y + bw };
             if self.hovered(&r) {
@@ -537,12 +542,28 @@ fn page_appearance(ui: &mut Ui, cfg: &Config) {
     let r = ui.row(&t("menu.accent_colour"), "");
     ui.swatches(r, &cfg.accent);
 
-    let r = ui.row(&t("menu.font_size"), "");
-    let sel = crate::FONT_SIZES.iter().position(|f| (f.0 - cfg.font_scale).abs() < 0.01);
-    ui.segmented(r, &crate::FONT_SIZES.iter().map(|f| t(f.1)).collect::<Vec<_>>(), sel, crate::FONT_SIZES.iter().map(|f| {
-        let v = f.0;
-        cfg_fx(move |c| c.font_scale = v)
-    }).collect());
+    let r = ui.row(&t("menu.font_size"), &t("settings.font_size_desc"));
+    ui.stepper(
+        r,
+        0,
+        &crate::font_size_label(cfg.font_scale),
+        cfg_fx(|c| c.font_scale = crate::font_step(c.font_scale, -1)),
+        cfg_fx(|c| c.font_scale = crate::font_step(c.font_scale, 1)),
+    );
+
+    // installed families of the list, plus a family set in config.toml
+    let mut families: Vec<String> = crate::FONT_FAMILIES.iter().filter(|f| f.is_empty() || crate::canvas::font_installed(f)).map(|f| f.to_string()).collect();
+    if !families.contains(&cfg.font_family) {
+        families.push(cfg.font_family.clone());
+    }
+    let cur = families.iter().position(|f| *f == cfg.font_family).unwrap_or(0);
+    let pick = |i: usize| {
+        let v = families[i % families.len()].clone();
+        cfg_fx(move |c| c.font_family = v.clone())
+    };
+    let shown = if cfg.font_family.is_empty() { t("settings.font_default") } else { cfg.font_family.clone() };
+    let r = ui.row(&t("settings.font_family"), "");
+    ui.stepper_w(r, 0, 150.0, ("\u{2039}", "\u{203A}"), &shown, pick(cur + families.len() - 1), pick(cur + 1));
 
     let r = ui.row(&t("menu.chart_width"), "");
     let sel = crate::CHART_WIDTHS.iter().position(|c| c.0 == cfg.chart_width);
