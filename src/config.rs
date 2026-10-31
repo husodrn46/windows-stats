@@ -35,8 +35,11 @@ pub struct Config {
     pub theme: String,
     /// Popup background: "more" (thinner than the system material) | "system" | "less" | "solid"
     pub popup_opacity: String,
-    /// Text size multiplier for widgets: 0.85 | 1.0 | 1.15 | 1.3
+    /// Text size multiplier for widgets, 0.5 to 2.0 (the settings offer 0.8 to 2.0).
     pub font_scale: f32,
+    /// Font family for all text, e.g. "Bahnschrift"; empty = Segoe UI Variable (Segoe UI on
+    /// Windows 10). A family that is not installed falls back to the default.
+    pub font_family: String,
     /// CPU load the way Task Manager shows it (% Processor Utility: busy time scaled by the
     /// current clock); false = plain busy time (% Processor Time).
     pub cpu_utility: bool,
@@ -98,6 +101,7 @@ impl Default for Config {
             theme: "auto".into(),
             popup_opacity: "system".into(),
             font_scale: 1.0,
+            font_family: String::new(),
             cpu_utility: true,
             group_pe_cores: false,
             split_pe_cores: true,
@@ -178,6 +182,7 @@ impl Config {
         if !(0.5..=2.0).contains(&self.font_scale) {
             self.font_scale = 1.0;
         }
+        self.font_family = self.font_family.trim().chars().take(64).collect();
         self.chart_width = self.chart_width.clamp(20, 200);
         self.top_processes = self.top_processes.clamp(1, 30);
         self.offset = self.offset.clamp(-2000, 2000);
@@ -271,6 +276,17 @@ mod tests {
         assert_eq!(c.chart_width, 200);
         let c = Config::parse("update_ms = 4000\n").unwrap();
         assert_eq!(c.update_ms, 5000);
+    }
+
+    #[test]
+    fn font_settings_round_trip() {
+        assert!(Config::default().font_family.is_empty());
+        let c = Config::parse("font_scale = 1.75\nfont_family = \"  Bahnschrift  \"\n").unwrap();
+        assert_eq!(c.font_scale, 1.75);
+        assert_eq!(c.font_family, "Bahnschrift");
+        let again = Config::parse(&c.to_document().unwrap()).unwrap();
+        assert_eq!(again.font_family, "Bahnschrift");
+        assert_eq!(again.font_scale, 1.75);
     }
 
     #[test]

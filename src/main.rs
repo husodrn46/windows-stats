@@ -216,6 +216,7 @@ fn main() {
     let mut cfg = Config::load();
     widgets::normalize(&mut cfg.widgets);
     i18n::set_language(&cfg.language);
+    canvas::set_font_family(&cfg.font_family);
     let floating = cfg.mode == "floating";
     unsafe {
         // per-monitor DPI where Windows offers it (10 1607+), system DPI awareness otherwise
@@ -583,7 +584,8 @@ impl App {
             accent: self.cfg.accent_color(),
             light,
             scale,
-            inner_h: ((h as f32) * 0.55).round() as i32,
+            // text larger than 130% needs taller rows: the strip takes more of the taskbar
+            inner_h: ((h as f32) * (0.55 * (self.cfg.font_scale / 1.3).max(1.0)).min(0.9)).round() as i32,
             labels: self.cfg.labels,
             font_scale: if self.cfg.font_scale > 0.5 { self.cfg.font_scale } else { 1.0 },
             split_pe: self.cfg.split_pe_cores,
@@ -916,6 +918,7 @@ impl App {
     fn after_config_change(&mut self) {
         self.cfg.sanitize();
         i18n::set_language(&self.cfg.language);
+        canvas::set_font_family(&self.cfg.font_family);
         self.popup.opacity = backdrop::Opacity::from_config(&self.cfg.popup_opacity);
         self.cfg.save();
         self.widgets = widgets::build(&self.cfg.widgets);
@@ -1144,6 +1147,7 @@ impl App {
         self.cfg = Config::load();
         widgets::normalize(&mut self.cfg.widgets);
         i18n::set_language(&self.cfg.language);
+        canvas::set_font_family(&self.cfg.font_family);
         self.widgets = widgets::build(&self.cfg.widgets);
         self.popup.opacity = backdrop::Opacity::from_config(&self.cfg.popup_opacity);
         self.reconfigure();
@@ -1654,7 +1658,23 @@ const MENU_BAR_BASE: usize = 500;
 const MENU_LANG_BASE: usize = 600;
 const TOP_COUNTS: &[u32] = &[5, 8, 10, 15, 20];
 const CHART_WIDTHS: &[(u32, &str)] = &[(34, "menu.small"), (48, "menu.medium"), (64, "menu.large"), (96, "menu.extra_large")];
-const FONT_SIZES: &[(f32, &str)] = &[(0.85, "menu.small"), (1.0, "menu.normal"), (1.15, "menu.large"), (1.3, "menu.extra_large")];
+/// Font size submenu entries; the settings stepper walks FONT_STEPS (80% to 200%).
+const FONT_SIZES: &[f32] = &[0.85, 1.0, 1.15, 1.3, 1.5, 1.75, 2.0];
+const FONT_STEPS: &[f32] = &[0.8, 0.85, 0.9, 1.0, 1.1, 1.15, 1.2, 1.3, 1.4, 1.5, 1.6, 1.75, 1.85, 2.0];
+/// Font families offered in the settings (those installed); "" = the default. config.toml
+/// takes any installed family.
+const FONT_FAMILIES: &[&str] = &["", "Segoe UI", "Bahnschrift", "Arial", "Calibri", "Cascadia Mono", "Consolas", "Tahoma", "Trebuchet MS", "Verdana"];
+
+/// "130%" (or the locale's way of writing it) for a font scale.
+fn font_size_label(scale: f32) -> String {
+    i18n::tf("menu.percent", &[("value", &((scale * 100.0).round() as i32).to_string())])
+}
+
+/// The next (dir > 0) or previous font step from `scale`, staying in FONT_STEPS' range.
+fn font_step(scale: f32, dir: i32) -> f32 {
+    let next = if dir > 0 { FONT_STEPS.iter().copied().find(|s| *s > scale + 0.001) } else { FONT_STEPS.iter().rev().copied().find(|s| *s < scale - 0.001) };
+    next.unwrap_or(if dir > 0 { FONT_STEPS[FONT_STEPS.len() - 1] } else { FONT_STEPS[0] })
+}
 /// colour submenu entries before the palette
 const COLOR_MODES: &[(&str, &str)] = &[("accent", "menu.accent"), ("utilization", "menu.by_utilisation"), ("mono", "menu.monochrome")];
 
@@ -1802,8 +1822,8 @@ unsafe fn build_menu(st: &MenuState) -> Option<HMENU> {
         menu_submenu(menu, accent, &t("menu.accent_colour"));
 
         let font = CreatePopupMenu().ok()?;
-        for (i, (scale, title)) in FONT_SIZES.iter().enumerate() {
-            menu_item(font, MENU_FONT_BASE + i, &t(title), (cfg.font_scale - scale).abs() < 0.01);
+        for (i, scale) in FONT_SIZES.iter().enumerate() {
+            menu_item(font, MENU_FONT_BASE + i, &font_size_label(*scale), (cfg.font_scale - scale).abs() < 0.01);
         }
         menu_submenu(menu, font, &t("menu.font_size"));
 
@@ -2083,7 +2103,7 @@ impl App {
                 self.cfg.bar_width = widgets::BAR_WIDTHS[c - MENU_BAR_BASE].0.to_string();
             }
             c if (MENU_FONT_BASE..MENU_FONT_BASE + FONT_SIZES.len()).contains(&c) => {
-                self.cfg.font_scale = FONT_SIZES[c - MENU_FONT_BASE].0;
+                self.cfg.font_scale = FONT_SIZES[c - MENU_FONT_BASE];
             }
             c if (MENU_ACCENT_BASE..MENU_ACCENT_BASE + widgets::PALETTE.len()).contains(&c) => {
                 self.cfg.accent = widgets::PALETTE[c - MENU_ACCENT_BASE].0.to_string();
@@ -2130,5 +2150,24 @@ impl App {
             }
         }
         self.tick();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn font_steps_cover_the_menu_and_stay_in_range() {
+        for s in FONT_SIZES {
+            assert!(FONT_STEPS.iter().any(|x| (x - s).abs() < 0.001), "{s} is not a step");
+        }
+        assert_eq!(font_step(1.0, 1), 1.1);
+        assert_eq!(font_step(1.0, -1), 0.9);
+        assert_eq!(font_step(2.0, 1), 2.0);
+        assert_eq!(font_step(0.8, -1), 0.8);
+        // a hand-edited value between steps moves to the neighbouring step
+        assert_eq!(font_step(1.12, 1), 1.15);
+        assert_eq!(font_step(0.6, 1), 0.8);
     }
 }

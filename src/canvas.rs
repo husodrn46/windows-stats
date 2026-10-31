@@ -65,6 +65,20 @@ thread_local! {
     /// One DirectWrite engine (and glyph cache) for every canvas of the UI thread; None when
     /// DirectWrite is unavailable, then each canvas falls back to GDI.
     static DW: RefCell<Option<crate::dwtext::TextEngine>> = RefCell::new(crate::dwtext::TextEngine::new());
+    /// Font family of the GDI fallback (Font setting, empty = Segoe UI).
+    static GDI_FAMILY: RefCell<String> = const { RefCell::new(String::new()) };
+}
+
+/// Use `name` for all text of this thread (empty = the default). Returns false when the family
+/// is not installed and the default is used instead.
+pub fn set_font_family(name: &str) -> bool {
+    GDI_FAMILY.with(|f| *f.borrow_mut() = name.to_string());
+    DW.with(|e| e.borrow_mut().as_mut().map(|e| e.set_family(name))).unwrap_or(true)
+}
+
+/// Whether a font family is installed (DirectWrite; assumed true when it is unavailable).
+pub fn font_installed(name: &str) -> bool {
+    DW.with(|e| e.borrow().as_ref().map(|e| e.has_family(name))).unwrap_or(true)
 }
 
 pub const FW_NORMAL: i32 = 400;
@@ -711,7 +725,7 @@ struct Glyphs {
 /// Renders text through GDI (grayscale antialiasing) into a coverage mask.
 struct TextRenderer {
     hdc: HDC,
-    fonts: HashMap<FontSpec, HFONT>,
+    fonts: HashMap<(FontSpec, String), HFONT>,
 }
 
 impl TextRenderer {
@@ -720,8 +734,9 @@ impl TextRenderer {
     }
 
     fn font(&mut self, spec: FontSpec) -> HFONT {
-        *self.fonts.entry(spec).or_insert_with(|| unsafe {
-            let face = wide("Segoe UI");
+        let family = GDI_FAMILY.with(|f| f.borrow().clone());
+        *self.fonts.entry((spec, family.clone())).or_insert_with(|| unsafe {
+            let face = wide(if family.is_empty() { "Segoe UI" } else { &family });
             CreateFontW(
                 -spec.px,
                 0,
