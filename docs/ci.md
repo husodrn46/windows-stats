@@ -26,3 +26,9 @@ powershell -ExecutionPolicy Bypass -File scripts\ci-smoke.ps1 -Executable target
 ```
 
 The script starts only its own short-lived CLI processes and restores the previous `WINDOWS_STATS_HOME` binding. It does not start or close the normal taskbar instance, run an installer, or change antivirus settings.
+
+## Releases
+
+[Release package](https://github.com/husodrn46/windows-stats/actions/workflows/release.yml) runs only when a `v*` tag is pushed. It checks that the tag, `Cargo.toml` and the sensor helper carry the same version and that `docs/release-notes/<version>.md` exists, builds and tests with the same pinned MSVC toolchain, packages with `scripts/build.ps1`, smoke-checks the packaged executable and attaches the ZIP to a **draft** release with its SHA-256. A maintainer reviews and publishes the draft. Release packages from 0.1.1 on are MSVC builds; 0.1.0 was a local GNU build.
+
+To release: bump the version in `Cargo.toml`, `Cargo.lock` and `helpers/sensors/Program.cs`, add the release notes, merge, then `git tag vX.Y.Z && git push origin vX.Y.Z`. Release a new version after every merged security fix.
