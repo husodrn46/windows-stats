@@ -33,7 +33,7 @@ opens no network connections at all now.
 | Taskbar normal after uninstalling | ✅ | `--install --quiet` / `--uninstall --quiet` cycle; files, shortcut and registry entry removed |
 | Idle CPU < 1% | ✅ **0.05% of the machine** (0.81% of one core) over 304 s | Sampling with `Get-Process` |
 | Memory | ✅ 16.1 MB private on average (20.3 MB peak), working set about 42 MB | Same measurement |
-| Sensor helper | ✅ PawnIO 2.2 + administrator: 147 readings, 36 temperatures, CPU 65 °C | Log |
+| Sensor helper | ✅ Runs with user privileges. The 0.1.0 administrator mode measured 147 readings, 36 temperatures and CPU 65 °C with PawnIO 2.2; 0.1.1 removed that mode for security, so readings that need administrator rights now show "not available" | Log |
 
 Automated tests: 22 unit tests (config, locales, units, notification rules, taskbar fitting,
 sensor protocol, DirectWrite text, JSON output) and `compare-taskmgr.ps1`.
@@ -83,6 +83,6 @@ sensor protocol, DirectWrite text, JSON output) and `compare-taskmgr.ps1`.
 
 ## 5. Privacy and security summary
 
-No telemetry, no network ports, no internet required, no administrator rights requested (UAC only
-when the user turns it on for the sensor helper), no drivers installed (the user installed PawnIO
+No telemetry, no network ports, no internet required, no administrator rights requested (since
+0.1.1 the sensor helper is never elevated through UAC either), no drivers installed (the user installed PawnIO
 themselves), only `HKCU` keys and user folders are used.

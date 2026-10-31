@@ -1,6 +1,6 @@
 [package]
 name = "windows-stats"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.85"
 description = "Windows Stats: system resource widgets for the Windows 10/11 taskbar (based on winstats)"

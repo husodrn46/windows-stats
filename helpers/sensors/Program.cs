@@ -8,8 +8,8 @@
 //   S <hw type> <hw name> <sensor type> <name> <value> <identifier>
 //   E                                                  end of a batch
 //
-// Output goes to stdout (Windows Stats starts the helper as its child) or, with --pipe <name>,
-// to that local named pipe (the elevated case, which cannot inherit handles).
+// Output goes to stdout only: Windows Stats starts the helper as its own child with the user's
+// privileges. The former --pipe output (used by the removed elevated mode) is gone on purpose.
 //
 // The helper never installs anything. Sensors that need the PawnIO kernel driver (CPU
 // temperature, power and clocks, Super I/O fans and voltages, DIMM temperatures) are only
@@ -20,7 +20,6 @@ using System;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
-using System.IO.Pipes;
 using System.Linq;
 using System.Security.Principal;
 using System.Text;
@@ -29,32 +28,20 @@ using LibreHardwareMonitor.Hardware;
 
 static class Program
 {
-    const string Version = "0.1.0";
+    const string Version = "0.1.1";
 
     static int Main(string[] args)
     {
         int interval = 2000;
-        string pipe = null;
         int parent = 0;
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i] == "--interval" && i + 1 < args.Length) int.TryParse(args[++i], out interval);
-            else if (args[i] == "--pipe" && i + 1 < args.Length) pipe = args[++i];
             else if (args[i] == "--parent" && i + 1 < args.Length) int.TryParse(args[++i], out parent);
         }
         interval = Math.Max(500, Math.Min(60000, interval));
 
-        Stream stream;
-        if (pipe != null)
-        {
-            var client = new NamedPipeClientStream(".", pipe, PipeDirection.Out);
-            client.Connect(10000);
-            stream = client;
-        }
-        else
-        {
-            stream = Console.OpenStandardOutput();
-        }
+        Stream stream = Console.OpenStandardOutput();
         var output = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = false, NewLine = "\n" };
 
         bool elevated = new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator);
@@ -93,7 +80,7 @@ static class Program
         }
         catch (IOException)
         {
-            // Windows Stats closed the pipe: done
+            // Windows Stats closed our stdout: done
         }
         finally
         {
