@@ -234,7 +234,7 @@ dependencies = [
 
 [[package]]
 name = "windows-stats"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "toml 0.9.12+spec-1.1.0",
