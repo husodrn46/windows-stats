@@ -33,7 +33,7 @@ hiçbir ağ bağlantısı açmıyor.
 | Kaldırınca görev çubuğu normal | ✅ | `--install --quiet` / `--uninstall --quiet` döngüsü; dosya, kısayol, kayıt temizlendi |
 | Boşta CPU < %1 | ✅ **Makinenin %0,05'i** (tek çekirdeğin %0,81'i), 304 sn | `Get-Process` örneklemesi |
 | Bellek | ✅ ortalama 16,1 MB özel bellek (en çok 20,3 MB), çalışma kümesi yaklaşık 42 MB | Aynı ölçüm |
-| Sensör yardımcısı | ✅ PawnIO 2.2 + yönetici: 147 okuma, 36 sıcaklık, CPU 65 °C | Günlük |
+| Sensör yardımcısı | ✅ Kullanıcı yetkisiyle çalışıyor. 0.1.0'daki yönetici modunda PawnIO 2.2 ile 147 okuma, 36 sıcaklık ve CPU 65 °C ölçülmüştü; bu mod 0.1.1'de güvenlik nedeniyle kaldırıldı ve yönetici gerektiren okumalar artık "kullanılamıyor" görünüyor | Günlük |
 
 Otomatik testler: 22 birim testi (yapılandırma, dil dosyaları, birimler, bildirim kuralları,
 görev çubuğu sığdırma, sensör protokolü, DirectWrite yazı, JSON çıktısı) ve
@@ -87,6 +87,6 @@ görev çubuğu sığdırma, sensör protokolü, DirectWrite yazı, JSON çıkt�
 
 ## 5. Gizlilik ve güvenlik özeti
 
-Telemetri yok; ağ portu yok; internet gerekmiyor; yönetici izni istenmiyor (yalnızca kullanıcı
-isterse sensör yardımcısı için UAC); sürücü kurulmuyor (PawnIO'yu kullanıcı kendisi kurdu); yalnızca
+Telemetri yok; ağ portu yok; internet gerekmiyor; yönetici izni hiç istenmiyor (0.1.1'den beri
+sensör yardımcısı da UAC ile yükseltilmiyor); sürücü kurulmuyor (PawnIO'yu kullanıcı kendisi kurdu); yalnızca
 `HKCU` anahtarları ve kullanıcı klasörleri kullanılıyor.
