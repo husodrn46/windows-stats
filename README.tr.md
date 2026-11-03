@@ -2,6 +2,8 @@
 
 [English](README.md) · **Türkçe**
 
+**[Windows x64 için son sürümü indir](https://github.com/husodrn46/windows-stats/releases/latest)** · [Kurulum adımları](#kurulum)
+
 Windows 10 ve Windows 11 için görev çubuğunda çalışan, hafif ve gizlilik dostu bir sistem izleme
 uygulaması. macOS'taki [Stats](https://github.com/exelban/stats) uygulamasından esinlenmiştir ve
 [winstats](https://github.com/mgvs/winstats) (Oleksandr Zhabotynskyi, MIT) temel alınarak
@@ -18,7 +20,7 @@ geliştirilmiştir.
 - **Ayarlar penceresi** (sağ tık > Ayarlar…): widget seçimi ve sıralaması, renkler, tema
   (sistem/koyu/açık), yazı ve grafik boyutları, güncelleme aralığı (0,5 / 1 / 2 / 5 sn), konum,
   Windows ile başlatma, eşik bildirimleri, sensörler, gizlilik.
-- **Bildirimler**: örneğin "İşlemci sıcaklığı 30 sn boyunca 85 °C üzerinde kalırsa uyar".
+- **Bildirimler**: örneğin "İşlemci kullanımı 60 sn boyunca %90 üzerinde kalırsa uyar".
   Ölçülemeyen değerler hiçbir zaman bildirim üretmez.
 - Tamamen **Türkçe** arayüz (Windows dili Türkçe ise otomatik), Türkçe birimler (KB/sn, 1,5 GB).
 
@@ -125,8 +127,8 @@ yerine **"Bu cihazda kullanılamıyor"** olarak görünür.
   ister ve yönetici izni olmadan kullanıcıya ait kurulumu değiştirir; yeni sürüm açılmazsa
   çalışan sürüm yerinde kalır. Sürümler imzasız olduğundan bu, arşivi sürümler sayfasından elle
   indirmekle aynı güvencedir.
-- Tek isteğe bağlı ağ işlemi ağ panelindeki gecikme ölçümüdür. Varsayılan olarak kapalıdır ve
-  ağ paneli açıkken yalnızca seçtiğiniz adrese ICMP gönderir. Ana bilgisayar adı girilirse DNS
+- İsteğe bağlı güncelleme denetimleri ve indirmelerin yanı sıra ağ panelinde isteğe bağlı gecikme
+  ölçümü de vardır. Varsayılan olarak kapalıdır ve ağ paneli açıkken yalnızca seçtiğiniz adrese ICMP gönderir. Ana bilgisayar adı girilirse DNS
   çözümlemesi gerekebilir. TCP'ye geçmez, bağdaştırıcı DNS sunucularını veya ağ geçitlerini
   alternatif hedef olarak yoklamaz. ICMP engellenirse gecikme ölçümü kullanılamaz.
 - Yönetici izni istemez (`asInvoker`). Yalnızca kullanıcıya ait anahtarları (`HKCU`) kullanır.

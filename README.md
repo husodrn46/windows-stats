@@ -17,7 +17,7 @@ Inspired by [Stats](https://github.com/exelban/stats) for macOS and built on
 - **Settings window** (right click > Settings…): widgets and their order, colours, theme
   (system / dark / light), text and chart sizes, update interval (0.5 / 1 / 2 / 5 s), position,
   start with Windows, threshold notifications, sensors, privacy.
-- **Notifications**, e.g. "warn when the CPU temperature stays above 85 °C for 30 seconds". Values
+- **Notifications**, e.g. "warn when CPU usage stays above 90% for 60 seconds". Values
   the device cannot measure never raise a notification.
 - **Interface in English and Turkish** (plus 27 more languages from winstats, partly translated);
   the Windows display language is picked automatically.
@@ -136,8 +136,8 @@ as CPU temperatures may therefore be unavailable, even if you separately install
   and SHA-256 digest GitHub reports for it, and replaces the per-user installation without
   administrator rights; if the new version does not start, the running one stays. Releases are
   unsigned, so this is as trustworthy as downloading the archive yourself from the releases page.
-- The only optional network activity is the latency measurement in the network panel. It is off by
-  default. While the network panel is open, it sends ICMP echo requests only to the address you
+- In addition to optional update checks and downloads, the network panel offers optional latency
+  measurement. It is off by default. While the network panel is open, it sends ICMP echo requests only to the address you
   choose. Hostnames may require a DNS lookup. It never falls back to TCP or probes adapter DNS
   servers or gateways; if ICMP is blocked, latency is unavailable.
 - Never asks for administrator rights (`asInvoker`); uses only per-user keys (`HKCU`).
