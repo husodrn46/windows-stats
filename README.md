@@ -6,6 +6,8 @@ A lightweight, privacy-friendly system monitor that lives in the Windows 10 / 11
 Inspired by [Stats](https://github.com/exelban/stats) for macOS and built on
 [winstats](https://github.com/mgvs/winstats) by Oleksandr Zhabotynskyi (MIT).
 
+<p align="center"><img src="docs/images/windows-stats.png" width="372" alt="Windows Stats in the taskbar: live CPU, RAM, GPU, network and disk widgets, and the CPU detail panel that opens on click"></p>
+
 - **A strip inside the taskbar**: CPU (a bar per core, P-core / E-core split, history chart), GPU,
   RAM, disk, network, battery and temperature widgets. When Windows does not allow embedding, the
   strip floats over the taskbar in the same place.
