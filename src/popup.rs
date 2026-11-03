@@ -1429,10 +1429,14 @@ fn sensor_value(kind: &str, v: f32) -> Option<String> {
 fn draw_sensors(ui: &mut Ui, m: &MetricsData) {
     let status = if !m.helper_enabled {
         t("popup.helper_off")
+    } else if m.helper_restarting {
+        t("popup.helper_restarting")
     } else if !m.helper.running {
         t("popup.helper_starting")
     } else if m.helper.elevated && m.helper.pawnio {
         t("popup.helper_full")
+    } else if m.helper.elevated {
+        t("popup.helper_no_driver")
     } else {
         t("popup.helper_limited")
     };

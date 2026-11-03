@@ -630,10 +630,15 @@ impl App {
     fn on_data(&mut self) {
         let Some(c) = &self.collector else { return };
         if let Some(d) = c.take() {
+            let before = helper_state(&self.metrics);
             self.metrics = d;
             self.last_data = std::time::Instant::now();
             self.check_alerts();
             self.debug_samples += 1;
+            // the settings show the helper's state: redraw them when it changes
+            if self.settings.visible && helper_state(&self.metrics) != before {
+                self.settings.invalidate();
+            }
         }
         self.tick();
         // Never automate the user's normal instance. Use an explicit scratch home and dump dir.
@@ -1505,6 +1510,11 @@ unsafe extern "system" fn bar_wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
         }
         _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
     }
+}
+
+/// What Settings > Sensors shows about the helper.
+fn helper_state(m: &MetricsData) -> (bool, bool, bool, bool, bool) {
+    (m.helper_enabled, m.helper_restarting, m.helper.running, m.helper.elevated, m.helper.pawnio)
 }
 
 /// The one-time question about the daily update check (yes: allowed).

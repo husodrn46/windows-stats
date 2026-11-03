@@ -101,6 +101,8 @@ pub struct MetricsData {
     pub helper: crate::sensorhost::HelperInfo,
     /// the user switched the helper on
     pub helper_enabled: bool,
+    /// the helper stopped by itself and is about to be started again
+    pub helper_restarting: bool,
 }
 
 impl MetricsData {

@@ -820,15 +820,25 @@ fn page_sensors(ui: &mut Ui, cfg: &Config, m: &MetricsData) {
     }
     let status = if !on {
         t("popup.helper_off")
+    } else if m.helper_restarting {
+        t("popup.helper_restarting")
     } else if !m.helper.running {
         t("popup.helper_starting")
     } else if m.helper.elevated && m.helper.pawnio {
         t("popup.helper_full")
+    } else if m.helper.elevated {
+        t("popup.helper_no_driver")
     } else {
         t("popup.helper_limited")
     };
-    let pawn = if m.helper.pawnio { t("settings.pawnio_yes") } else { t("settings.pawnio_no") };
-    ui.row(&t("settings.status"), &format!("{status} \u{00B7} {pawn}"));
+    // the driver state is only known while the helper runs
+    let text = if m.helper.running {
+        let pawn = if m.helper.pawnio { t("settings.pawnio_yes") } else { t("settings.pawnio_no") };
+        format!("{status} \u{00B7} {pawn}")
+    } else {
+        status
+    };
+    ui.row(&t("settings.status"), &text);
     ui.section(&t("popup.why_missing"));
     ui.note(&t("settings.pawnio_long"));
     ui.button(None, &t("settings.pawnio_site"), Effect::Open("https://pawnio.eu".to_string()));

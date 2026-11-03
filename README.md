@@ -69,7 +69,7 @@ are redacted in the detail panels; the covered areas are marked `[gizlendi]` (hi
 
 **Privacy**
 
-![Privacy settings with latency measurement disabled](docs/images/settings-5.png)
+![Privacy settings: latency measurement and the update check, both off](docs/images/settings-5.png)
 
 **About**
 
