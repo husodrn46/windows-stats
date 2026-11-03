@@ -8,6 +8,16 @@ If code signing is approved and configured, only Windows Stats binaries built fr
 
 The maintainer, [husodrn46](https://github.com/husodrn46), is responsible for this project's source and build scripts. Contributions from other people require maintainer review. Before enabling signing, repository and signing-service accounts must use multi-factor authentication, and author, reviewer and release approver roles must be configured. Each signing request requires explicit approval by a designated project approver; no workflow currently submits signing requests automatically.
 
+## Team and roles
+
+| Role | Members | Responsibility |
+|---|---|---|
+| Author (committer) | [husodrn46](https://github.com/husodrn46) | May change the source and build scripts. |
+| Reviewer | [husodrn46](https://github.com/husodrn46) | Reviews every change from non-committers (pull requests from forks) before it is merged, including build scripts and CI configuration. |
+| Approver | [husodrn46](https://github.com/husodrn46) | Approves each release and each signing request. |
+
+All members use multi-factor authentication on GitHub, and will on the signing service.
+
 Sign only our own main executable and optional sensor-helper executable. Upstream DLLs must retain their original provenance and licences; they are not submitted as binaries maintained by this project. The policy also preserves the MIT attribution to mgvs/winstats, from which Windows Stats was developed. Eligibility of this derivative project must be confirmed with the signing provider rather than assumed.
 
 Before any signed release is published, verify the product name, version, signature, timestamp, license notices and installed/uninstalled behavior. Do not replace an existing release asset silently. Identify the signed build and its checksum separately from unsigned builds.
