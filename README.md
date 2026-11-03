@@ -125,8 +125,15 @@ as CPU temperatures may therefore be unavailable, even if you separately install
 
 ## Privacy and security
 
-- **No** telemetry, analytics or automatic update checks. No network ports, no internet connection
-  needed.
+- **No** telemetry or analytics. No network ports, no internet connection needed.
+- **Updates are optional.** Settings > About > Check for updates asks GitHub for the latest release
+  only when you click. On its first start Windows Stats asks once whether it may check by itself
+  (at most once a day); change the answer any time in Settings > Privacy. A check is one HTTPS
+  request to api.github.com: GitHub sees your IP address and the Windows Stats version, nothing
+  else is sent. Installing an update downloads the release archive from GitHub, requires the size
+  and SHA-256 digest GitHub reports for it, and replaces the per-user installation without
+  administrator rights; if the new version does not start, the running one stays. Releases are
+  unsigned, so this is as trustworthy as downloading the archive yourself from the releases page.
 - The only optional network activity is the latency measurement in the network panel. It is off by
   default. While the network panel is open, it sends ICMP echo requests only to the address you
   choose. Hostnames may require a DNS lookup. It never falls back to TCP or probes adapter DNS

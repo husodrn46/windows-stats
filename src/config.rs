@@ -75,6 +75,13 @@ pub struct Config {
     pub alerts: Vec<crate::alerts::Rule>,
     /// Advanced sensors through the optional LibreHardwareMonitor helper process (off by default).
     pub lhm_sensors: bool,
+    /// Look for a newer release on GitHub at most once a day. Absent until the user has been
+    /// asked once; "Check for updates" in About works either way.
+    pub update_check: Option<bool>,
+    /// When the automatic check last ran (seconds since 1970; 0: never).
+    pub update_last_check: u64,
+    /// The newest version the user was told about, so each release is announced once.
+    pub update_notified: String,
 }
 
 impl Default for Config {
@@ -118,6 +125,9 @@ impl Default for Config {
             ping_host: String::new(),
             alerts: crate::alerts::default_rules(),
             lhm_sensors: false,
+            update_check: None,
+            update_last_check: 0,
+            update_notified: String::new(),
         }
     }
 }
@@ -256,6 +266,20 @@ mod tests {
         let c = Config::default();
         assert!(c.ping_host.is_empty());
         assert_eq!(c.update_ms, 1000);
+        // the update check stays off until the user answers the one-time question
+        assert_eq!(c.update_check, None);
+        assert!(!crate::update::due(c.update_check, c.update_last_check, crate::update::now_secs()));
+    }
+
+    #[test]
+    fn update_answer_round_trips() {
+        // files written before 0.1.4 have no answer: the user is asked once
+        assert_eq!(Config::parse("lhm_sensors = true\n").unwrap().update_check, None);
+        for answer in [Some(true), Some(false)] {
+            let c = Config { update_check: answer, update_last_check: 1_793_000_000, update_notified: "0.1.4".into(), ..Config::default() };
+            let back = Config::parse(&c.to_document().unwrap()).unwrap();
+            assert_eq!(back, c);
+        }
     }
 
     #[test]
