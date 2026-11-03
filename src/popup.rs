@@ -24,6 +24,8 @@ pub const WRITE: Color = Color::rgb(0xFF, 0x98, 0x00);
 
 /// timer id of the copy flash on the popup window
 pub const COPY_TIMER: usize = 7;
+/// timer id of the slide-in when the popup opens
+pub const ANIM_TIMER: usize = 10;
 const COPY_FLASH_SECS: f32 = 0.8;
 
 /// Geometry of the last drawn pie chart, in window coordinates, for hover hit-testing.
@@ -139,6 +141,14 @@ pub struct Popup {
     /// for re-creating the window: DWM does not take a backdrop change on a window that has had one
     hinstance: HINSTANCE,
     class: String,
+    /// slide in when opened (the app's "Animations" and Windows' animation effects)
+    pub animate: bool,
+    /// slide-in under way: when it began, where the window ends up (top-left, shadow margin
+    /// included), the offset it starts from, and the halo of the shadow window to move along
+    anim: Option<Instant>,
+    anim_to: (i32, i32),
+    anim_from: (i32, i32),
+    anim_halo: Option<i32>,
 }
 
 /// The popup window with the background for `opacity`; returns it with the mode in use and the
@@ -196,6 +206,11 @@ impl Popup {
             shadow_canvas: Canvas::new(),
             hinstance,
             class: class.to_string(),
+            animate: false,
+            anim: None,
+            anim_to: (0, 0),
+            anim_from: (0, 0),
+            anim_halo: None,
             native,
             backdrop,
             applied: None,
@@ -330,9 +345,47 @@ impl Popup {
         self.hit_at(x, y).map(|h| h.action.clone())
     }
 
+    /// Where the slide-in has the window now, and how opaque (layered windows fade in too).
+    fn anim_now(&self) -> (i32, i32, u8) {
+        let (x, y) = self.anim_to;
+        let Some(start) = self.anim else { return (x, y, 255) };
+        let e = crate::anim::ease_out(crate::anim::progress(start, crate::anim::PANEL_MS));
+        let left = 1.0 - e;
+        let (ox, oy) = self.anim_from;
+        ((x as f32 + ox as f32 * left).round() as i32, (y as f32 + oy as f32 * left).round() as i32, (255.0 * e).round().clamp(1.0, 255.0) as u8)
+    }
+
+    /// ANIM_TIMER: move the window one step of the slide-in; nothing is redrawn.
+    pub fn anim_step(&mut self) {
+        let (x, y, alpha) = self.anim_now();
+        unsafe {
+            if self.native == crate::backdrop::Mode::Layered {
+                let _ = self.canvas.present_at_alpha(self.hwnd, x, y, alpha);
+            } else {
+                let flags = SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE;
+                let _ = SetWindowPos(self.hwnd, None, x, y, 0, 0, flags);
+                if let Some(halo) = self.anim_halo {
+                    let _ = SetWindowPos(self.shadow, None, x - halo, y - halo, 0, 0, flags);
+                }
+            }
+        }
+        let over = self.anim.map_or(true, |s| crate::anim::progress(s, crate::anim::PANEL_MS) >= 1.0);
+        if over {
+            self.stop_anim();
+        }
+    }
+
+    fn stop_anim(&mut self) {
+        self.anim = None;
+        unsafe {
+            let _ = KillTimer(self.hwnd, ANIM_TIMER);
+        }
+    }
+
     pub fn hide(&mut self, reason: &str) {
         if self.visible {
             let _ = reason;
+            self.stop_anim();
             unsafe {
                 let _ = ShowWindow(self.hwnd, SW_HIDE);
                 let _ = ShowWindow(self.shadow, SW_HIDE);
@@ -549,12 +602,32 @@ impl Popup {
             (x, y)
         };
 
+        // opening: slide in from the taskbar's side (and fade in where the window is layered);
+        // samples arriving meanwhile redraw it at the same point of the slide
+        self.anim_to = (x - sh, y - sh);
+        if first {
+            self.stop_anim();
+            if self.animate {
+                let slide = t.s(crate::anim::PANEL_SLIDE_DIP);
+                self.anim_from = if tray_vertical {
+                    (if self.tray.left > mon.left + 10 { slide } else { -slide }, 0)
+                } else {
+                    (0, if self.tray.top > mon.top + 10 { slide } else { -slide })
+                };
+                self.anim = Some(Instant::now());
+                unsafe {
+                    SetTimer(self.hwnd, ANIM_TIMER, crate::anim::PANEL_FRAME_MS, None);
+                }
+            }
+        }
+        let (ax, ay, alpha) = self.anim_now();
+
         unsafe {
             let flags = if first { SWP_SHOWWINDOW } else { SWP_SHOWWINDOW | SWP_NOACTIVATE };
-            let (x, y) = (x - sh, y - sh);
+            let (x, y) = (ax, ay);
             let _ = SetWindowPos(self.hwnd, HWND_TOPMOST, x, y, w + sh * 2, h + sh * 2, flags);
             if layered {
-                if let Err(e) = self.canvas.present_at(self.hwnd, x, y) {
+                if let Err(e) = self.canvas.present_at_alpha(self.hwnd, x, y, alpha) {
                     crate::log!("popup UpdateLayeredWindow failed: {e}");
                 }
             } else {
@@ -574,8 +647,10 @@ impl Popup {
                     if let Err(e) = self.shadow_canvas.present_at(self.shadow, x - halo, y - halo) {
                         crate::log!("shadow UpdateLayeredWindow failed: {e}");
                     }
+                    self.anim_halo = Some(halo);
                 } else {
                     let _ = ShowWindow(self.shadow, SW_HIDE);
+                    self.anim_halo = None;
                 }
             }
             if first {

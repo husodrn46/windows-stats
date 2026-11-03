@@ -151,6 +151,11 @@ Measured over five minutes on an Intel Core 7 240H (16 logical cores): **0.05% o
 CPU** (0.8% of one core) and about **16 MB** of private memory. CPU load matches Task Manager within
 2 points and RAM within 0.1 points (`scripts\compare-taskmgr.ps1`). Details: [REPORT.md](REPORT.md).
 
+Animations (on by default) redraw the strip a few times after each update while the values glide.
+Measured side by side for 90 seconds on the same machine: 1.1% of one core with animations, 0.7%
+without (0.07% and 0.04% of the machine). Turn them off in Settings → Appearance; they also stay
+off while animation effects are off in Windows.
+
 ## Build
 
 A project-local toolchain that needs no administrator rights (`.toolchain`, not in git):

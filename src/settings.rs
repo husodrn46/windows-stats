@@ -587,6 +587,12 @@ fn page_appearance(ui: &mut Ui, cfg: &Config) {
     let on = cfg.labels;
     ui.toggle(r, on, cfg_fx(move |c| c.labels = !on));
 
+    // Windows' own switch wins: say so instead of showing a setting that does nothing
+    let desc = if crate::anim::system_enabled() { t("settings.animations_desc") } else { format!("{} {}", t("settings.animations_desc"), t("settings.animations_windows_off")) };
+    let r = ui.row(&t("settings.animations"), &desc);
+    let on = cfg.animations;
+    ui.toggle(r, on, cfg_fx(move |c| c.animations = !on));
+
     let r = ui.row(&t("menu.popup_opacity"), "");
     let sel = crate::POPUP_OPACITY.iter().position(|o| o.0 == cfg.popup_opacity);
     ui.segmented(r, &crate::POPUP_OPACITY.iter().map(|o| t(o.1)).collect::<Vec<_>>(), sel, crate::POPUP_OPACITY.iter().map(|o| {

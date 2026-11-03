@@ -6,6 +6,7 @@
 //! menu) and only draws; the collector thread (`collector.rs`) does all measuring; the ping
 //! thread probes latency only when the user configured a host and the network popup is open.
 
+mod anim;
 mod canvas;
 mod cli;
 mod collector;
@@ -69,6 +70,8 @@ const ZBURST_TICKS: u32 = 14;
 /// re-attached after an Explorer restart
 const TIMER_WATCH: usize = 5;
 const WATCH_MS: u32 = 5000;
+/// animations: strip redraws while values glide to a new sample
+const TIMER_GLIDE: usize = 13;
 /// optional updates: whether the daily check is due (and old downloads to remove), every 15 min
 const TIMER_UPDATE: usize = 11;
 const UPDATE_TIMER_MS: u32 = 15 * 60 * 1000;
@@ -161,6 +164,12 @@ struct App {
     update_retry_at: std::time::Instant,
     /// leftovers of an earlier update were removed
     update_cleaned: bool,
+    /// animations: the strip's values gliding to the newest sample
+    glider: Option<anim::Glider>,
+    /// the widget under the pointer (index into `widgets`), drawn with a soft highlight
+    hover: Option<usize>,
+    /// WM_MOUSELEAVE requested for the strip
+    hover_tracked: bool,
 }
 
 /// A full-screen Direct3D game or a presentation is in front: the shell says so, or the
@@ -349,6 +358,9 @@ fn main() {
             update: update::State::Idle,
             update_retry_at: std::time::Instant::now(),
             update_cleaned: false,
+            glider: None,
+            hover: None,
+            hover_tracked: false,
         })
     });
 
@@ -623,6 +635,7 @@ impl App {
     fn render_popup(&mut self, first: bool) {
         let light = self.is_light();
         let theme = self.theme();
+        self.popup.animate = self.animations();
         self.popup.render(&theme, light, &self.metrics, first);
     }
 
@@ -631,7 +644,24 @@ impl App {
         let Some(c) = &self.collector else { return };
         if let Some(d) = c.take() {
             let before = helper_state(&self.metrics);
+            // what the strip shows now, mid-glide or not: the next glide starts there
+            let shown = match &self.glider {
+                Some(g) => g.frame().0,
+                None => anim::Glide::of(&self.metrics),
+            };
             self.metrics = d;
+            self.glider = if self.animations() && !self.fullscreen_hidden {
+                anim::Glider::start(shown, anim::Glide::of(&self.metrics))
+            } else {
+                None
+            };
+            unsafe {
+                if self.glider.is_some() {
+                    SetTimer(self.hidden, TIMER_GLIDE, anim::GLIDE_FRAME_MS, None);
+                } else {
+                    let _ = KillTimer(self.hidden, TIMER_GLIDE);
+                }
+            }
             self.last_data = std::time::Instant::now();
             self.check_alerts();
             self.debug_samples += 1;
@@ -824,11 +854,68 @@ impl App {
         }
     }
 
-    /// Layout, draw and present the strip (and the popup) from the current metrics.
+    /// Layout, draw and present the strip, and the popup, from the current metrics.
     fn render(&mut self) {
+        self.render_strip();
+        if self.popup.visible {
+            self.render_popup(false);
+        }
+    }
+
+    /// Motion is on: the user's switch and Windows' animation effects.
+    fn animations(&self) -> bool {
+        self.cfg.animations && anim::system_enabled()
+    }
+
+    /// TIMER_GLIDE: the next frame of the values gliding to the newest sample.
+    fn glide_frame(&mut self) {
+        let done = self.glider.as_ref().map_or(true, |g| g.frame().1);
+        if !self.fullscreen_hidden {
+            self.render_strip();
+        }
+        if done {
+            self.glider = None;
+            unsafe {
+                let _ = KillTimer(self.hidden, TIMER_GLIDE);
+            }
+        }
+    }
+
+    /// The pointer moved over the strip (client coords): highlight the widget under it.
+    fn hover_move(&mut self, x: i32, y: i32) {
+        if !self.hover_tracked {
+            let mut tme = TRACKMOUSEEVENT { cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32, dwFlags: TME_LEAVE, hwndTrack: self.bar, dwHoverTime: 0 };
+            self.hover_tracked = unsafe { TrackMouseEvent(&mut tme).is_ok() };
+        }
+        let vertical = self.taskbar.as_ref().map_or(false, |t| t.vertical());
+        let (p, q) = if vertical { (y, x) } else { (x, y) };
+        let over = self.layout.iter().find(|(_, _, p0, p1, q0, q1)| p >= *p0 && p < *p1 && q >= *q0 && q < *q1).map(|c| c.0);
+        if over != self.hover {
+            self.hover = over;
+            self.render_strip();
+        }
+    }
+
+    /// WM_MOUSELEAVE on the strip.
+    fn hover_leave(&mut self) {
+        self.hover_tracked = false;
+        if self.hover.take().is_some() {
+            self.render_strip();
+        }
+    }
+
+    /// Layout, draw and present the strip only (glide frames and hover changes).
+    fn render_strip(&mut self) {
         if self.taskbar.is_none() {
             return;
         }
+        // mid-glide the strip draws the in-between values; panels always use the sample
+        let glided: Option<MetricsData> = self.glider.as_ref().map(|g| {
+            let mut m = self.metrics.clone();
+            g.frame().0.apply(&mut m);
+            m
+        });
+        let m: &MetricsData = glided.as_ref().unwrap_or(&self.metrics);
         let theme = self.theme();
         let tb = self.taskbar.as_ref().unwrap();
         // on a vertical taskbar the widgets are stacked top to bottom, each in a row of `h`
@@ -841,7 +928,7 @@ impl App {
         // what is left of its row
         let mut widths: Vec<i32> = Vec::with_capacity(self.widgets.len());
         for w in self.widgets.iter() {
-            widths.push(w.width(&mut self.canvas, &theme, &self.metrics));
+            widths.push(w.width(&mut self.canvas, &theme, m));
         }
         let mut visible: Vec<(usize, i32)> = widths.iter().cloned().enumerate().filter(|(_, w)| *w > 0).collect();
         // Windows 11 fit: (span index 0 = left / 1 = right, span) the strip goes into
@@ -941,7 +1028,18 @@ impl App {
             } else {
                 &theme
             };
-            self.widgets[*i].draw(&mut self.canvas, wx, wy, th, &self.metrics);
+            if self.hover == Some(*i) && self.drag.is_none() {
+                // a soft plate behind the widget under the pointer, like taskbar buttons
+                let plate = if self.is_light() { Color::rgba(0, 0, 0, 14) } else { Color::rgba(255, 255, 255, 20) };
+                let inset = theme.s(3.0);
+                let r = theme.s(4.0) as f32;
+                if vertical {
+                    self.canvas.fill_round_rect(cross - gap / 2 + 1, *main - gap / 2 + 1, w + gap - 2, h + gap - 2, r, plate);
+                } else {
+                    self.canvas.fill_round_rect(main - gap / 2 + 1, inset, w + gap - 2, h - inset * 2, r, plate);
+                }
+            }
+            self.widgets[*i].draw(&mut self.canvas, wx, wy, th, m);
             let cell = if vertical {
                 (main - gap / 2, main + h + gap / 2, cross - gap / 2, cross + w + gap / 2)
             } else {
@@ -989,9 +1087,6 @@ impl App {
         // WINDOWS_STATS_DEBUG_DUMP=<dir>: the strip as drawn, for checking the rendering
         if let Some(dir) = std::env::var_os("WINDOWS_STATS_DEBUG_DUMP") {
             let _ = self.canvas.save_bmp(&std::path::Path::new(&dir).join("strip.bmp"));
-        }
-        if self.popup.visible {
-            self.render_popup(false);
         }
     }
 
@@ -1358,6 +1453,9 @@ unsafe extern "system" fn hidden_wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, l
                 TIMER_UPDATE => {
                     with_app(|app| app.update_timer());
                 }
+                TIMER_GLIDE => {
+                    with_app(|app| app.glide_frame());
+                }
                 TIMER_UPDATE_ASK => {
                     unsafe {
                         let _ = KillTimer(hwnd, TIMER_UPDATE_ASK);
@@ -1484,11 +1582,17 @@ unsafe extern "system" fn bar_wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
             LRESULT(0)
         }
         WM_MOUSEMOVE => {
+            let x = (lparam.0 & 0xFFFF) as i16 as i32;
+            let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as i32;
             if wparam.0 & 0x0001 != 0 {
-                let x = (lparam.0 & 0xFFFF) as i16 as i32;
-                let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as i32;
                 with_app(|app| app.drag_move(x, y));
+            } else {
+                with_app(|app| app.hover_move(x, y));
             }
+            LRESULT(0)
+        }
+        WM_MOUSELEAVE => {
+            with_app(|app| app.hover_leave());
             LRESULT(0)
         }
         WM_LBUTTONUP => {
@@ -1652,6 +1756,10 @@ unsafe extern "system" fn popup_wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lp
         // the DWM-backed popup has a frame only to get the backdrop: no non-client area, no resizing
         WM_NCCALCSIZE if wparam.0 != 0 => LRESULT(0),
         WM_NCHITTEST => LRESULT(HTCLIENT as isize),
+        WM_TIMER if wparam.0 == popup::ANIM_TIMER => {
+            with_app(|app| app.popup.anim_step());
+            LRESULT(0)
+        }
         WM_TIMER if wparam.0 == popup::COPY_TIMER => {
             // copy flash frames; the render ends the timer when the flash is over
             with_app(|app| {

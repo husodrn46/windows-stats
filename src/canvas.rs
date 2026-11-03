@@ -566,12 +566,17 @@ impl Canvas {
 
     /// Push the framebuffer to a layered window (keeps the window position).
     pub fn present(&mut self, hwnd: HWND) -> windows::core::Result<()> {
-        self.present_impl(hwnd, None)
+        self.present_impl(hwnd, None, 255)
     }
 
     /// Push the framebuffer to a top-level layered window and move it to screen (x, y).
     pub fn present_at(&mut self, hwnd: HWND, x: i32, y: i32) -> windows::core::Result<()> {
-        self.present_impl(hwnd, Some(POINT { x, y }))
+        self.present_impl(hwnd, Some(POINT { x, y }), 255)
+    }
+
+    /// `present_at` with the whole window faded to `alpha` (255 = opaque), for animations.
+    pub fn present_at_alpha(&mut self, hwnd: HWND, x: i32, y: i32, alpha: u8) -> windows::core::Result<()> {
+        self.present_impl(hwnd, Some(POINT { x, y }), alpha)
     }
 
     /// Copy the framebuffer, alpha included, onto a window DC (a non-layered window whose
@@ -590,7 +595,7 @@ impl Canvas {
         }
     }
 
-    fn present_impl(&mut self, hwnd: HWND, dst: Option<POINT>) -> windows::core::Result<()> {
+    fn present_impl(&mut self, hwnd: HWND, dst: Option<POINT>, alpha: u8) -> windows::core::Result<()> {
         if self.dib.as_ref().map(|d| d.w != self.w || d.h != self.h).unwrap_or(true) {
             self.dib = Some(Dib::new(self.w, self.h)?);
         }
@@ -599,7 +604,7 @@ impl Canvas {
         let size = SIZE { cx: self.w, cy: self.h };
         let src = POINT { x: 0, y: 0 };
         // AC_SRC_OVER = 0, AC_SRC_ALPHA = 1
-        let blend = BLENDFUNCTION { BlendOp: 0, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: 1 };
+        let blend = BLENDFUNCTION { BlendOp: 0, BlendFlags: 0, SourceConstantAlpha: alpha, AlphaFormat: 1 };
         unsafe {
             UpdateLayeredWindow(
                 hwnd,
