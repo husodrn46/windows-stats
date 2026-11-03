@@ -7,6 +7,8 @@ uygulaması. macOS'taki [Stats](https://github.com/exelban/stats) uygulamasında
 [winstats](https://github.com/mgvs/winstats) (Oleksandr Zhabotynskyi, MIT) temel alınarak
 geliştirilmiştir.
 
+<p align="center"><img src="docs/images/windows-stats.png" width="372" alt="Görev çubuğunda Windows Stats: canlı CPU, RAM, GPU, ağ ve disk göstergeleri ve tıklayınca açılan CPU ayrıntı paneli"></p>
+
 - **Görev çubuğunun içinde** çalışan şerit: CPU (çekirdek başına çubuklar, P/E çekirdek ayrımı,
   geçmiş grafiği), GPU, RAM, disk, ağ, pil ve sıcaklık widget'ları. Windows görev çubuğuna gömmeye
   izin vermezse aynı yerde **yüzen** şerit olarak çalışır.
