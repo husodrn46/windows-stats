@@ -23,6 +23,13 @@ geliştirilmiştir.
   Windows ile başlatma, eşik bildirimleri, sensörler, gizlilik.
 - **Bildirimler**: örneğin "İşlemci kullanımı 60 sn boyunca %90 üzerinde kalırsa uyar".
   Ölçülemeyen değerler hiçbir zaman bildirim üretmez.
+- **Yerel yapay zekâ oturumları** (isteğe bağlı, ilk seferde sorulur): Ollama, llama.cpp, KoboldCpp
+  ya da LocalAI ile bir model çalışırken Windows Stats en yüksek işlemci, ekran kartı, video belleği,
+  bellek ve sıcaklık değerlerini not eder, bitince özet gösterir ve oturumları Ayarlar > Yapay zekâ'da
+  saklar.
+- **Yapay zekâ uygulamaları için (MCP):** LM Studio, Claude Desktop, VS Code ve diğer MCP istemcileri
+  bu bilgisayarın yükünü ve yapay zekâ oturumlarını salt okunur olarak okuyabilir; yerel modellerle de.
+  Ayrıntılar: [docs/mcp.md](docs/mcp.md).
 - Tamamen **Türkçe** arayüz (Windows dili Türkçe ise otomatik), Türkçe birimler (KB/sn, 1,5 GB).
 
 ## Ekran görüntüleri
@@ -132,6 +139,15 @@ yerine **"Bu cihazda kullanılamıyor"** olarak görünür.
   ölçümü de vardır. Varsayılan olarak kapalıdır ve ağ paneli açıkken yalnızca seçtiğiniz adrese ICMP gönderir. Ana bilgisayar adı girilirse DNS
   çözümlemesi gerekebilir. TCP'ye geçmez, bağdaştırıcı DNS sunucularını veya ağ geçitlerini
   alternatif hedef olarak yoklamaz. ICMP engellenirse gecikme ölçümü kullanılamaz.
+- **Yerel yapay zekâ oturumları da isteğe bağlıdır.** Bir model ilk kez çalıştığında Windows Stats bu
+  oturumları takip edip etmeyeceğini sorar; cevap Ayarlar > Yapay zekâ'dan değiştirilir. Modeli fark
+  etmek için üç saniyede bir çalışan programların adlarına yalnızca bu bilgisayarda bakar. Model adını
+  göstermek için çalışma zamanına kendi yerel adresinden sorar (`127.0.0.1`, örneğin Ollama'nın 11434
+  portu); hiçbir şey bilgisayardan çıkmaz. Oturumlar ayarların yanındaki `ai-sessions.jsonl` dosyasında
+  tutulur ve Ayarlar > Yapay zekâ'dan silinebilir.
+- **MCP** yalnızca bir yapay zekâ uygulaması `WindowsStats.exe --mcp` ile başlattığında çalışır; boru
+  üzerinden konuşur, port açmaz ve salt okunurdur. Çalışan programların adlarını yalnızca
+  `top_processes` aracı verir; bulut modelinde yapay zekâ uygulaması bu adları o servise gönderir.
 - Yönetici izni istemez (`asInvoker`). Yalnızca kullanıcıya ait anahtarları (`HKCU`) kullanır.
 - Ölçümler ayrı bir iş parçacığında yapılır; görev çubuğuna gömülü pencere hiçbir zaman ölçüm
   beklemez. Böylece Explorer'ın donması önlenir. Explorer yeniden başlarsa şerit kendini yeniden
@@ -168,6 +184,8 @@ WindowsStats.exe --uninstall       kaldır (--quiet: soru sormadan, ayarlar koru
 WindowsStats.exe --quit            çalışan uygulamayı temiz biçimde kapat
 WindowsStats.exe --dump 10 1000    10 ölçümü JSON satırları olarak yazdır
 WindowsStats.exe --taskbar-items   görev çubuğu öğelerini listele (tanı)
+WindowsStats.exe --check-update    GitHub'a yeni sürüm var mı diye sor
+WindowsStats.exe --mcp             yapay zekâ uygulamaları için salt okunur MCP sunucusu (docs/mcp.md)
 WindowsStats.exe --version
 ```
 

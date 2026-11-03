@@ -51,6 +51,63 @@ struct SystemProcessInformation {
     other_transfer_count: i64,
 }
 
+/// One process of a snapshot, as the AI session watch needs it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Entry {
+    pub pid: u32,
+    pub parent: u32,
+    pub name: String,
+    /// kernel + user time, 100 ns units
+    pub cpu_time: i64,
+    /// private working set, bytes
+    pub private: u64,
+}
+
+/// Every process now (one NtQuerySystemInformation call into `buf`, grown as needed).
+pub fn entries(buf: &mut Vec<u8>) -> Vec<Entry> {
+    if buf.is_empty() {
+        buf.resize(512 * 1024, 0);
+    }
+    let mut ok = false;
+    for _ in 0..4 {
+        let mut ret = 0u32;
+        let status = unsafe { NtQuerySystemInformation(SystemProcessInformation, buf.as_mut_ptr() as *mut _, buf.len() as u32, &mut ret) };
+        if status.is_ok() {
+            ok = true;
+            break;
+        }
+        let want = (ret as usize).max(buf.len() * 2);
+        buf.resize(want + 64 * 1024, 0);
+    }
+    let mut out = Vec::new();
+    if !ok {
+        return out;
+    }
+    let mut off = 0usize;
+    loop {
+        if off + std::mem::size_of::<SystemProcessInformation>() > buf.len() {
+            break;
+        }
+        let p = unsafe { &*(buf.as_ptr().add(off) as *const SystemProcessInformation) };
+        let pid = p.unique_process_id as u32;
+        if pid != 0 && !p.image_name.buffer.is_null() && p.image_name.length > 0 {
+            let s = unsafe { std::slice::from_raw_parts(p.image_name.buffer, (p.image_name.length / 2) as usize) };
+            out.push(Entry {
+                pid,
+                parent: p.inherited_from_unique_process_id as u32,
+                name: String::from_utf16_lossy(s),
+                cpu_time: p.kernel_time + p.user_time,
+                private: p.working_set_private_size.max(0) as u64,
+            });
+        }
+        if p.next_entry_offset == 0 {
+            break;
+        }
+        off += p.next_entry_offset as usize;
+    }
+    out
+}
+
 #[derive(Clone, Debug)]
 pub struct ProcInfo {
     pub pid: u32,

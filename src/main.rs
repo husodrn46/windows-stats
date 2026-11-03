@@ -6,6 +6,7 @@
 //! menu) and only draws; the collector thread (`collector.rs`) does all measuring; the ping
 //! thread probes latency only when the user configured a host and the network popup is open.
 
+mod aiwatch;
 mod anim;
 mod canvas;
 mod cli;
@@ -14,6 +15,7 @@ mod config;
 mod dwtext;
 mod i18n;
 mod install;
+mod mcp;
 mod menu;
 mod metrics;
 mod about;
@@ -155,8 +157,8 @@ struct App {
     /// threshold notifications: rule timers and the card that shows them
     alerts: alerts::Alerts,
     toast: toast::Toast,
-    /// the card on screen announces a new version: a click opens Settings > About
-    toast_opens_about: bool,
+    /// the settings page a click on the card on screen opens (a new version, an AI session)
+    toast_page: Option<usize>,
     settings: settings::Settings,
     /// optional updates: what Settings > About shows and what is running
     update: update::State,
@@ -353,7 +355,7 @@ fn main() {
             embed_probe_at: std::time::Instant::now(),
             alerts: alerts::Alerts::default(),
             toast,
-            toast_opens_about: false,
+            toast_page: None,
             settings,
             update: update::State::Idle,
             update_retry_at: std::time::Instant::now(),
@@ -665,8 +667,9 @@ impl App {
             self.last_data = std::time::Instant::now();
             self.check_alerts();
             self.debug_samples += 1;
-            // the settings show the helper's state: redraw them when it changes
-            if self.settings.visible && helper_state(&self.metrics) != before {
+            // the settings show the helper's state: redraw them when it changes; the AI page
+            // shows a running session's figures: redraw it with every sample
+            if self.settings.visible && (helper_state(&self.metrics) != before || (self.settings.page == settings::PAGE_AI && self.metrics.ai_live.is_some())) {
                 self.settings.invalidate();
             }
         }
@@ -709,7 +712,7 @@ impl App {
             let theme = self.theme();
             let light = self.is_light();
             self.toast.show(&theme, light, &t("alerts.title"), &body);
-            self.toast_opens_about = false;
+            self.toast_page = None;
         }
     }
 
@@ -799,12 +802,43 @@ impl App {
         self.settings.invalidate();
     }
 
+    /// The one-time question about AI sessions has been answered.
+    fn set_ai_watch(&mut self, on: bool, runtime: &str) {
+        log!("ai sessions {}", if on { "followed" } else { "not followed" });
+        self.cfg.ai_watch = Some(on);
+        self.after_config_change();
+        if on {
+            // the session that led to the question is already being followed
+            self.ai_card_started(runtime, None);
+        }
+    }
+
+    /// The card in the corner: a model runs and is followed.
+    fn ai_card_started(&mut self, runtime: &str, model: Option<&str>) {
+        let name = match model {
+            Some(m) => format!("{runtime} \u{00B7} {m}"),
+            None => runtime.to_string(),
+        };
+        let theme = self.theme();
+        let light = self.is_light();
+        self.toast.show(&theme, light, &i18n::tf("ai.started_title", &[("name", &name)]), &t("ai.started_body"));
+        self.toast_page = Some(settings::PAGE_AI);
+    }
+
+    /// The card in the corner: a session ended, with its peaks.
+    fn ai_card_ended(&mut self, s: &aiwatch::Session) {
+        let theme = self.theme();
+        let light = self.is_light();
+        self.toast.show(&theme, light, &i18n::tf("ai.ended_title", &[("name", &aiwatch::title(s))]), &aiwatch::summary(s));
+        self.toast_page = Some(settings::PAGE_AI);
+    }
+
     /// The card in the corner: a new version; clicking it opens Settings > About.
     fn show_update_toast(&mut self, r: &update::Release) {
         let theme = self.theme();
         let light = self.is_light();
         self.toast.show(&theme, light, &i18n::tf("update.toast_title", &[("version", &r.name)]), &t("update.toast_body"));
-        self.toast_opens_about = true;
+        self.toast_page = Some(settings::PAGE_ABOUT);
     }
 
     /// Latency rows: the ping thread's last readings go into the snapshot the popup draws.
@@ -1114,6 +1148,14 @@ impl App {
                 }
             }
             Effect::UpdateCheck => self.check_for_update(false),
+            Effect::AiClear => aiwatch::clear(),
+            Effect::McpCopy => {
+                let ok = util::set_clipboard(&mcp_config());
+                let theme = self.theme();
+                let light = self.is_light();
+                self.toast.show(&theme, light, "Windows Stats", &t(if ok { "ai.mcp_copied" } else { "ai.mcp_copy_failed" }));
+                self.toast_page = None;
+            }
             Effect::UpdateInstall => {
                 if let update::State::Available(r) = &self.update {
                     if update::can_install() {
@@ -1474,6 +1516,26 @@ unsafe extern "system" fn hidden_wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, l
             with_app(|app| app.update_outcomes());
             LRESULT(0)
         }
+        aiwatch::WM_APP_AI => {
+            for event in aiwatch::take_events() {
+                match event {
+                    aiwatch::Event::Detected(runtime) => {
+                        // the message box runs its own message loop: ask without holding the app
+                        if with_app(|app| app.cfg.ai_watch.is_none()).unwrap_or(false) {
+                            let on = ask_ai_watch(&runtime);
+                            with_app(|app| app.set_ai_watch(on, &runtime));
+                        }
+                    }
+                    aiwatch::Event::Started { runtime, model } => {
+                        with_app(|app| app.ai_card_started(&runtime, model.as_deref()));
+                    }
+                    aiwatch::Event::Ended(s) => {
+                        with_app(|app| app.ai_card_ended(&s));
+                    }
+                }
+            }
+            LRESULT(0)
+        }
         WM_APP_OPEN_SETTINGS => {
             with_app(|app| app.open_settings());
             LRESULT(0)
@@ -1621,6 +1683,20 @@ fn helper_state(m: &MetricsData) -> (bool, bool, bool, bool, bool) {
     (m.helper_enabled, m.helper_restarting, m.helper.running, m.helper.elevated, m.helper.pawnio)
 }
 
+/// What an AI app needs to start this program's MCP server (Settings > AI > copy).
+fn mcp_config() -> String {
+    let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "WindowsStats.exe".into());
+    let v = serde_json::json!({ "mcpServers": { "windows-stats": { "command": exe, "args": ["--mcp"] } } });
+    serde_json::to_string_pretty(&v).unwrap_or_default()
+}
+
+/// The one-time question about following AI sessions (yes: follow).
+fn ask_ai_watch(runtime: &str) -> bool {
+    let text = wide(&i18n::tf("ai.ask", &[("runtime", runtime)]));
+    let title = wide("Windows Stats");
+    unsafe { MessageBoxW(None, pcwstr(&text), pcwstr(&title), MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_TOPMOST) == IDYES }
+}
+
 /// The one-time question about the daily update check (yes: allowed).
 fn ask_update_check() -> bool {
     let text = wide(&t("update.ask"));
@@ -1638,8 +1714,8 @@ unsafe extern "system" fn toast_wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lp
         WM_LBUTTONUP => {
             with_app(|app| {
                 app.toast.hide();
-                if std::mem::take(&mut app.toast_opens_about) {
-                    app.settings.page = settings::PAGES.len() - 1;
+                if let Some(page) = app.toast_page.take() {
+                    app.settings.page = page;
                     app.open_settings();
                 }
             });
