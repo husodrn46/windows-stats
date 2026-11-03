@@ -3,36 +3,13 @@
 //! its own thread. It talks only through its stdout pipe: no port, no shared files. It exits by
 //! itself when Windows Stats goes away (`--parent`), and is killed when switched off.
 
-use std::io::{BufRead, BufReader};
 use std::os::windows::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 
-/// One sensor reading from the helper.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Reading {
-    /// LibreHardwareMonitor hardware type: "Cpu", "GpuNvidia", "Motherboard", "Storage"...
-    pub hw_type: String,
-    pub hw: String,
-    /// "Temperature", "Fan", "Voltage", "Power", "Clock", "Load"...
-    pub kind: String,
-    pub name: String,
-    pub value: f32,
-}
-
-/// What the helper reported about itself.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct HelperInfo {
-    pub running: bool,
-    pub elevated: bool,
-    pub pawnio: bool,
-}
-
-#[derive(Default)]
-struct Shared {
-    readings: Vec<Reading>,
-    info: HelperInfo,
-}
+mod stream;
+pub use stream::{HelperInfo, Reading};
+use stream::Shared;
 
 /// The sensor helper is always a child process of the same user, with piped stdout.
 /// The unsigned per-user package must never elevate executable bytes that the user can replace.
@@ -57,60 +34,10 @@ pub fn helper_path() -> Option<std::path::PathBuf> {
     helper_candidates(&exe, cfg!(debug_assertions)).into_iter().find(|p| p.is_file())
 }
 
-/// Parse one line of the helper's output into the batch being built.
-pub fn parse_line(line: &str, batch: &mut Vec<Reading>, info: &mut HelperInfo) -> bool {
-    let f: Vec<&str> = line.split('\t').collect();
-    match f.first().copied() {
-        Some("H") if f.len() >= 4 => {
-            info.running = true;
-            info.elevated = f[2] == "1";
-            info.pawnio = f[3] == "1";
-            false
-        }
-        Some("B") => {
-            batch.clear();
-            false
-        }
-        Some("S") if f.len() >= 6 => {
-            if let Ok(v) = f[5].parse::<f32>() {
-                if v.is_finite() {
-                    batch.push(Reading { hw_type: f[1].into(), hw: f[2].into(), kind: f[3].into(), name: f[4].into(), value: v });
-                }
-            }
-            false
-        }
-        // a complete batch
-        Some("E") => true,
-        _ => false,
-    }
-}
-
 /// Read the helper's lines on a thread into `shared`.
 fn spawn_reader(reader: impl std::io::Read + Send + 'static, shared: Arc<Mutex<Shared>>) {
     let _ = std::thread::Builder::new().name("sensor-helper".into()).spawn(move || {
-        let mut batch = Vec::new();
-        let mut info = HelperInfo::default();
-        let mut logged_batch = false;
-        for line in BufReader::new(reader).lines() {
-            let Ok(line) = line else { break };
-            if !info.running {
-                crate::log!("sensor helper says: {}", line.chars().take(40).collect::<String>());
-            }
-            let done = parse_line(line.trim_end(), &mut batch, &mut info);
-            if done && !logged_batch {
-                logged_batch = true;
-                crate::log!("sensor helper: first batch, {} readings", batch.len());
-            }
-            if let Ok(mut g) = shared.lock() {
-                g.info = info;
-                if done {
-                    g.readings = std::mem::take(&mut batch);
-                }
-            }
-        }
-        if let Ok(mut g) = shared.lock() {
-            g.info.running = false;
-        }
+        stream::read_stream(reader, shared, |message| crate::log!("{message}"));
     });
 }
 
@@ -162,20 +89,5 @@ mod tests {
         assert_eq!(debug[0], expected);
         assert_eq!(debug.len(), 2);
         assert!(debug[1].ends_with(std::path::Path::new(r"sensors\bin\Release\net48\WindowsStats.Sensors.exe")));
-    }
-
-    #[test]
-    fn parses_a_batch() {
-        let mut b = Vec::new();
-        let mut i = HelperInfo::default();
-        assert!(!parse_line("H\t0.1.0\t0\t1", &mut b, &mut i));
-        assert!(i.running && !i.elevated && i.pawnio);
-        assert!(!parse_line("B", &mut b, &mut i));
-        assert!(!parse_line("S\tCpu\tIntel Core\tTemperature\tCPU Package\t47.5\t/intelcpu/0/temperature/0", &mut b, &mut i));
-        assert!(!parse_line("S\tCpu\tIntel Core\tTemperature\tbroken\tnan-ish\t/x", &mut b, &mut i));
-        assert!(parse_line("E", &mut b, &mut i));
-        assert_eq!(b.len(), 1);
-        assert_eq!(b[0].value, 47.5);
-        assert_eq!(b[0].name, "CPU Package");
     }
 }

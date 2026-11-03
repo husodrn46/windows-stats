@@ -7,12 +7,21 @@ on:
       - '**/*.md'
       - 'docs/**'
       - '.github/ISSUE_TEMPLATE/**'
+      - '.github/scripts/**'
+      - '.github/workflows/triage.yml'
   pull_request:
     paths-ignore:
       - '**/*.md'
       - 'docs/**'
       - '.github/ISSUE_TEMPLATE/**'
+      - '.github/scripts/**'
+      - '.github/workflows/triage.yml'
   workflow_dispatch:
+    inputs:
+      check_published_release:
+        description: Also smoke-check the pinned v0.1.2 published ZIP
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -74,18 +83,19 @@ jobs:
         run: |
           ./scripts/ci-smoke.ps1 -Executable ./target/release/WindowsStats.exe -WorkDirectory "$env:RUNNER_TEMP/windows-stats-cli"
 
-      - name: Smoke-check the published v0.1.0 archive
+      - name: Smoke-check the published v0.1.2 archive (manual opt-in)
+        if: github.event_name == 'workflow_dispatch' && inputs.check_published_release
         run: |
-          $archive = Join-Path $env:RUNNER_TEMP 'WindowsStats-0.1.0-x64.zip'
-          Invoke-WebRequest 'https://github.com/husodrn46/windows-stats/releases/download/v0.1.0/WindowsStats-0.1.0-x64.zip' -OutFile $archive
-          $expectedHash = '247975E09D33FBF5DA66C0B034F56F5767FB8FB844653D982F76156D796E3798'
+          $archive = Join-Path $env:RUNNER_TEMP 'WindowsStats-0.1.2-x64.zip'
+          Invoke-WebRequest 'https://github.com/husodrn46/windows-stats/releases/download/v0.1.2/WindowsStats-0.1.2-x64.zip' -OutFile $archive
+          $expectedHash = 'A9586744C57AFC2B82C5AEA82A672F7C7743F9CA8E01CF38CD1E50023A22FC9A'
           if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne $expectedHash) { throw 'Release archive checksum mismatch' }
           $releaseDirectory = Join-Path $env:RUNNER_TEMP 'WindowsStats-published-release'
           Expand-Archive $archive -DestinationPath $releaseDirectory
-          foreach ($relative in @('WindowsStats.exe', 'sensors/WindowsStats.Sensors.exe', 'LICENSE.txt', 'THIRD-PARTY-NOTICES.txt')) {
+          foreach ($relative in @('WindowsStats.exe', 'Kur.cmd', 'sensors/WindowsStats.Sensors.exe', 'LICENSE.txt', 'THIRD-PARTY-NOTICES.txt')) {
             if (-not (Test-Path (Join-Path $releaseDirectory $relative))) { throw "Release file missing: $relative" }
           }
-          ./scripts/ci-smoke.ps1 -Executable (Join-Path $releaseDirectory 'WindowsStats.exe') -WorkDirectory "$env:RUNNER_TEMP/windows-stats-release-cli" -ExpectedVersion '0.1.0'
+          ./scripts/ci-smoke.ps1 -Executable (Join-Path $releaseDirectory 'WindowsStats.exe') -WorkDirectory "$env:RUNNER_TEMP/windows-stats-release-cli" -ExpectedVersion '0.1.2'
 
       - name: Build optional sensor helper
         run: |
