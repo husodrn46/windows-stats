@@ -1,6 +1,7 @@
 name: Feature request / Özellik önerisi
 description: Suggest an improvement to Windows Stats.
 title: "[Feature]: "
+labels: [enhancement]
 body:
   - type: textarea
     id: problem

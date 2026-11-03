@@ -96,7 +96,7 @@ pub struct MetricsData {
     /// hottest GPU, °C, from the display driver (None: no GPU reports it)
     pub gpu_temp: Option<f32>,
     pub gpu_fan_rpm: Option<u32>,
-    /// readings of the LibreHardwareMonitor helper (empty when it is off)
+    /// readings of the LibreHardwareMonitor helper (empty when it is off or stopped)
     pub ext_sensors: Vec<crate::sensorhost::Reading>,
     pub helper: crate::sensorhost::HelperInfo,
     /// the user switched the helper on
@@ -107,6 +107,8 @@ impl MetricsData {
     /// Take the helper's readings in: the CPU temperature only comes from there (it needs the
     /// PawnIO driver); a GPU temperature the display driver does not report may.
     pub fn apply_helper(&mut self, readings: Vec<crate::sensorhost::Reading>, info: crate::sensorhost::HelperInfo) {
+        // Never promote a stopped helper's last batch into live temperatures or alerts.
+        let readings = if info.running { readings } else { Vec::new() };
         let temp = |hw: &dyn Fn(&str) -> bool, names: &[&str]| -> Option<f32> {
             for n in names {
                 if let Some(r) = readings.iter().find(|r| hw(&r.hw_type) && r.kind == "Temperature" && r.name == *n) {

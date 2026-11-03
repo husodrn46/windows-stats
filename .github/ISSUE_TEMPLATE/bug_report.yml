@@ -1,6 +1,7 @@
 name: Bug report / Hata bildirimi
 description: Report a reproducible problem with Windows Stats.
 title: "[Bug]: "
+labels: [bug]
 body:
   - type: markdown
     attributes:
@@ -11,7 +12,7 @@ body:
     id: version
     attributes:
       label: Windows Stats version
-      placeholder: "0.1.0"
+      placeholder: "e.g. 0.1.2 (see About / Hakkında)"
     validations:
       required: true
   - type: input
@@ -39,7 +40,7 @@ body:
     id: sensors
     attributes:
       label: Sensor setup (if relevant)
-      description: Hardware model, helper enabled, PawnIO version and whether the helper runs as administrator. Never include serial numbers.
+      description: Hardware model, helper enabled and PawnIO version (if installed). State whether you used the standard release as a normal user; administrator launch is intentionally unavailable in the unsigned release. Never include serial numbers.
   - type: textarea
     id: log
     attributes:

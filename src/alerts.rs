@@ -233,6 +233,23 @@ mod tests {
     }
 
     #[test]
+    fn a_stopped_helper_cannot_continue_a_temperature_alert() {
+        use crate::sensorhost::{HelperInfo, Reading};
+        let readings = vec![Reading { hw_type: "Cpu".into(), hw: "CPU".into(), kind: "Temperature".into(), name: "CPU Package".into(), value: 95.0 }];
+        let mut m = MetricsData::default();
+        let mut a = Alerts::default();
+        m.apply_helper(readings.clone(), HelperInfo { running: true, elevated: false, pawnio: true });
+        assert_eq!(m.cpu_temp, Some(95.0));
+        assert!(a.evaluate(&[rule()], &m, 29.0).is_empty());
+
+        // Even if a caller retains the last batch, a stopped helper is not a live source.
+        m.apply_helper(readings, HelperInfo::default());
+        assert!(m.cpu_temp.is_none());
+        assert!(m.ext_sensors.is_empty());
+        assert!(a.evaluate(&[rule()], &m, 60.0).is_empty());
+    }
+
+    #[test]
     fn below_rules_and_disabled_rules() {
         let mut a = Alerts::default();
         let battery = |level: f32| MetricsData {
