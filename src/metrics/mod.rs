@@ -474,3 +474,47 @@ pub fn push<T>(q: &mut VecDeque<T>, v: T) {
     }
     q.push_back(v);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn disk(temp_c: Option<f32>) -> disks::PhysicalDisk {
+        disks::PhysicalDisk {
+            index: 0,
+            model: "Test SSD".into(),
+            bus: "NVMe",
+            size: 0,
+            read_bps: 0.0,
+            write_bps: 0.0,
+            enabled: true,
+            temp_c,
+            ssd: Some(true),
+        }
+    }
+
+    #[test]
+    fn strip_shows_cpu_and_gpu_side_by_side() {
+        let mut m = MetricsData { cpu_temp: Some(48.0), gpu_temp: Some(41.0), ..Default::default() };
+        m.disks.push(disk(Some(60.0)));
+        assert_eq!(m.strip_temps(), vec![("CPU", 48.0), ("GPU", 41.0)]);
+    }
+
+    #[test]
+    fn strip_shows_a_single_value_otherwise() {
+        let mut m = MetricsData::default();
+        assert!(m.strip_temps().is_empty());
+
+        m.disks.push(disk(Some(52.0)));
+        m.disks.push(disk(Some(58.0)));
+        m.disks.push(disk(None));
+        assert_eq!(m.strip_temps(), vec![("SSD", 58.0)]);
+
+        m.gpu_temp = Some(41.0);
+        assert_eq!(m.strip_temps(), vec![("GPU", 41.0)]);
+
+        m.gpu_temp = None;
+        m.cpu_temp = Some(48.0);
+        assert_eq!(m.strip_temps(), vec![("CPU", 48.0)]);
+    }
+}
