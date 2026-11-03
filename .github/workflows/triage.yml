@@ -21,7 +21,9 @@ jobs:
     permissions:
       contents: read
       issues: write
-      pull-requests: read
+      # Adding a label to a pull request needs pull-requests: write; issues: write alone
+      # returns 403. The job still never checks out or runs pull request code.
+      pull-requests: write
     steps:
       - name: Check out trusted automation only
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
