@@ -9,7 +9,7 @@ Inspired by [Stats](https://github.com/exelban/stats) for macOS and built on
 <p align="center"><img src="docs/images/windows-stats.png" width="372" alt="Windows Stats in the taskbar: live CPU, RAM, GPU, network and disk widgets, and the CPU detail panel that opens on click"></p>
 
 - **A strip inside the taskbar**: CPU (a bar per core, P-core / E-core split, history chart), GPU,
-  RAM, disk, network, battery and temperature widgets. When Windows does not allow embedding, the
+  RAM, disk, network, battery and temperature widgets, and ring gauges for CPU, RAM and GPU. When Windows does not allow embedding, the
   strip floats over the taskbar in the same place.
 - **Click a widget for a detail panel**: history charts, top processes, cores and clocks, memory
   modules, physical disks (SSD/HDD, temperature), drives, network adapters (Wi-Fi network, IP, MAC,
@@ -152,8 +152,8 @@ CPU** (0.8% of one core) and about **16 MB** of private memory. CPU load matches
 2 points and RAM within 0.1 points (`scripts\compare-taskmgr.ps1`). Details: [REPORT.md](REPORT.md).
 
 Animations (on by default) redraw the strip a few times after each update while the values glide.
-Measured side by side for 90 seconds on the same machine: 1.1% of one core with animations, 0.7%
-without (0.07% and 0.04% of the machine). Turn them off in Settings → Appearance; they also stay
+Measured side by side for 90 seconds on the same machine (0.1.6): 1.5% of one core with animations,
+0.7% without (0.09% and 0.04% of the machine). Turn them off in Settings → Appearance; they also stay
 off while animation effects are off in Windows.
 
 ## Build

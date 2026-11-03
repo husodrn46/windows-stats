@@ -12,8 +12,9 @@ geliştirilmiştir.
 <p align="center"><img src="docs/images/windows-stats.png" width="372" alt="Görev çubuğunda Windows Stats: canlı CPU, RAM, GPU, ağ ve disk göstergeleri ve tıklayınca açılan CPU ayrıntı paneli"></p>
 
 - **Görev çubuğunun içinde** çalışan şerit: CPU (çekirdek başına çubuklar, P/E çekirdek ayrımı,
-  geçmiş grafiği), GPU, RAM, disk, ağ, pil ve sıcaklık widget'ları. Windows görev çubuğuna gömmeye
-  izin vermezse aynı yerde **yüzen** şerit olarak çalışır.
+  geçmiş grafiği), GPU, RAM, disk, ağ, pil ve sıcaklık widget'ları; CPU, RAM ve GPU için halka
+  göstergeler. Windows görev çubuğuna gömmeye izin vermezse aynı yerde **yüzen** şerit olarak
+  çalışır.
 - Widget'a tıklayınca **ayrıntılı panel**: geçmiş grafikleri, en çok kaynak kullanan işlemler,
   çekirdekler ve frekanslar, bellek modülleri, fiziksel diskler (SSD/HDD, sıcaklık), sürücüler, ağ
   bağdaştırıcıları (Wi-Fi ağı, IP, MAC, hız), pil, sensörler.

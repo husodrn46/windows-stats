@@ -25,6 +25,12 @@ impl Color {
     pub fn alpha(self, a: f32) -> Self {
         Self { a: (self.a as f32 * a.clamp(0.0, 1.0)).round() as u8, ..self }
     }
+    /// `t` of the way from `self` to `other` (alpha included).
+    pub fn mix(self, other: Color, t: f32) -> Color {
+        let t = t.clamp(0.0, 1.0);
+        let m = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * t).round() as u8;
+        Color { r: m(self.r, other.r), g: m(self.g, other.g), b: m(self.b, other.b), a: m(self.a, other.a) }
+    }
     pub fn from_hex(s: &str) -> Option<Self> {
         let s = s.trim().trim_start_matches('#');
         if s.len() != 6 && s.len() != 8 {
@@ -45,17 +51,27 @@ pub const YELLOW: Color = Color::rgb(0xFF, 0xC1, 0x07);
 pub const ORANGE: Color = Color::rgb(0xFF, 0x98, 0x00);
 pub const RED: Color = Color::rgb(0xF4, 0x43, 0x36);
 
-/// Colour for a 0..1 utilisation value: base below 0.6, then yellow, orange, red.
-pub fn usage_color(v: f32, base: Color) -> Color {
-    if v < 0.6 {
-        base
-    } else if v < 0.75 {
-        YELLOW
-    } else if v < 0.9 {
-        ORANGE
-    } else {
-        RED
+/// The colour at `v` on a ramp of (value, colour) stops in rising order: the first colour
+/// below the first stop, the last above the last, blended in between. Each stop keeps its
+/// exact colour, so a ramp through the old thresholds agrees with the old steps there.
+pub fn ramp(v: f32, stops: &[(f32, Color)]) -> Color {
+    let Some(&(first_v, first)) = stops.first() else { return WHITE };
+    if v <= first_v {
+        return first;
     }
+    for w in stops.windows(2) {
+        let ((a, ca), (b, cb)) = (w[0], w[1]);
+        if v <= b {
+            return ca.mix(cb, if b > a { (v - a) / (b - a) } else { 1.0 });
+        }
+    }
+    stops[stops.len() - 1].1
+}
+
+/// Colour for a 0..1 utilisation value: `base` up to 0.5, then flowing to yellow at 0.6,
+/// orange at 0.75 and red at 0.9 (the old steps' thresholds).
+pub fn usage_color(v: f32, base: Color) -> Color {
+    ramp(v, &[(0.5, base), (0.6, YELLOW), (0.75, ORANGE), (0.9, RED)])
 }
 
 pub use crate::dwtext::FontSpec;
@@ -237,24 +253,69 @@ impl Canvas {
         if pts.is_empty() {
             return;
         }
-        let base = if down { y as f32 } else { (y + h) as f32 };
-        // fill, column by column, from the line to the baseline
+        // fill, column by column, from the line to the baseline; the fade belongs to the chart,
+        // not to the column: strong at the far edge (100%), faint at the baseline, so peaks glow
+        // and quiet stretches stay calm
+        let hf = h.max(1) as f32;
         for &(px, py) in &pts {
             let col = (px - 0.5).round() as i32;
-            let span = (base - py).abs().max(1.0);
             let (from, to) = if down { (y, py.ceil() as i32) } else { (py.floor() as i32, y + h) };
             for yy in from.max(y)..to.min(y + h) {
                 let (top, bot) = (yy as f32, yy as f32 + 1.0);
                 // part of the pixel on the filled side of the line
                 let cov = if down { (py - top).clamp(0.0, 1.0) } else { (bot - py).clamp(0.0, 1.0) };
-                let dist = if down { (py - bot).max(0.0) } else { (top - py).max(0.0) };
-                let fade = 1.0 - 0.8 * (dist / span).clamp(0.0, 1.0);
+                // 0 at the far edge, 1 at the baseline
+                let depth = if down { (y as f32 + hf - bot) / hf } else { (top - y as f32) / hf };
+                let fade = 1.0 - 0.85 * depth.clamp(0.0, 1.0);
                 if cov > 0.0 {
                     self.blend_px(col, yy, fill, cov * fade);
                 }
             }
         }
+        // a soft glow under the line, then the line
+        self.polyline(&pts, line.alpha(0.22), line_w * 3.2, y, y + h);
         self.polyline(&pts, line, line_w, y, y + h);
+    }
+
+    /// Antialiased arc of a ring: centre (cx, cy), radius `r` to the middle of the stroke,
+    /// `width` thick, from `start` over `sweep` radians (0 at 12 o'clock, clockwise) with round
+    /// ends; a sweep of a full turn or more is a closed ring.
+    pub fn stroke_arc(&mut self, cx: f32, cy: f32, r: f32, width: f32, start: f32, sweep: f32, c: Color) {
+        let tau = std::f32::consts::PI * 2.0;
+        if sweep <= 0.0 || r <= 0.0 || width <= 0.0 {
+            return;
+        }
+        let hw = width / 2.0;
+        let full = sweep >= tau;
+        let end = start + sweep;
+        let cap = |a: f32| (cx + r * a.sin(), cy - r * a.cos());
+        let (c0, c1) = (cap(start), cap(end));
+        let reach = r + hw + 1.0;
+        for y in (cy - reach).floor() as i32..=(cy + reach).ceil() as i32 {
+            for x in (cx - reach).floor() as i32..=(cx + reach).ceil() as i32 {
+                let (dx, dy) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
+                let along = ((dx * dx + dy * dy).sqrt() - r).abs();
+                let dist = if full {
+                    along
+                } else {
+                    let mut a = dx.atan2(-dy);
+                    if a < start {
+                        a += tau;
+                    }
+                    if a <= end {
+                        along
+                    } else {
+                        let d0 = (x as f32 + 0.5 - c0.0).hypot(y as f32 + 0.5 - c0.1);
+                        let d1 = (x as f32 + 0.5 - c1.0).hypot(y as f32 + 0.5 - c1.1);
+                        d0.min(d1)
+                    }
+                };
+                let cov = (hw + 0.5 - dist).clamp(0.0, 1.0);
+                if cov > 0.0 {
+                    self.blend_px(x, y, c, cov);
+                }
+            }
+        }
     }
 
     /// Mirrored chart for a pair of rates (Stats' network chart): `up` grows upwards from the
@@ -814,5 +875,50 @@ impl Drop for TextRenderer {
             }
             let _ = DeleteDC(self.hdc);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn colours_flow_through_the_old_thresholds() {
+        let base = Color::rgb(10, 20, 30);
+        assert_eq!(usage_color(0.3, base), base);
+        assert_eq!(usage_color(0.5, base), base);
+        assert_eq!(usage_color(0.6, base), YELLOW);
+        assert_eq!(usage_color(0.75, base), ORANGE);
+        assert_eq!(usage_color(0.9, base), RED);
+        assert_eq!(usage_color(1.0, base), RED);
+        // half way from yellow to orange
+        assert_eq!(usage_color(0.675, base), YELLOW.mix(ORANGE, 0.5));
+        assert_ne!(usage_color(0.55, base), base);
+        assert_ne!(usage_color(0.55, base), YELLOW);
+    }
+
+    fn painted(c: &Canvas, x: i32, y: i32) -> bool {
+        (c.px[(y * c.w + x) as usize] >> 24) & 0xFF > 128
+    }
+
+    #[test]
+    fn rings_and_arcs() {
+        let tau = std::f32::consts::PI * 2.0;
+        let mut c = Canvas::new();
+        c.resize(40, 40);
+        c.clear();
+        c.stroke_arc(20.0, 20.0, 12.0, 4.0, 0.0, tau, WHITE);
+        for (x, y) in [(20, 7), (32, 20), (20, 32), (7, 20)] {
+            assert!(painted(&c, x, y), "ring at {x},{y}");
+        }
+        assert!(!painted(&c, 20, 20), "the middle stays empty");
+        // a quarter from 12 o'clock clockwise reaches 3 o'clock only
+        c.clear();
+        c.stroke_arc(20.0, 20.0, 12.0, 4.0, 0.0, tau / 4.0, WHITE);
+        assert!(painted(&c, 20, 7));
+        assert!(painted(&c, 28, 11), "half way along the quarter");
+        assert!(painted(&c, 32, 20), "round end at 3 o'clock");
+        assert!(!painted(&c, 20, 32), "no 6 o'clock");
+        assert!(!painted(&c, 7, 20), "no 9 o'clock");
     }
 }

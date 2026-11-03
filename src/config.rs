@@ -223,7 +223,7 @@ impl Config {
     /// The config as stored on disk, with a short header.
     pub fn to_document(&self) -> Result<String, toml::ser::Error> {
         let body = toml::to_string_pretty(self)?;
-        let header = "# Windows Stats yapılandırması / configuration\n# widgets: cpu_bars, cpu_line, cpu_mini, gpu, gpu_line, mem, mem_line, mem_text,\n#          disk, disk_chart, net, net_chart, battery\n\n";
+        let header = "# Windows Stats yapılandırması / configuration\n# widgets: cpu_bars, cpu_line, cpu_mini, cpu_ring, gpu, gpu_line, gpu_ring, mem, mem_line,\n#          mem_ring, mem_text, disk, disk_chart, net, net_chart, battery, temp\n\n";
         Ok(format!("{header}{body}"))
     }
 

@@ -1,7 +1,7 @@
 //! Taskbar widgets: BarChart, LineChart, Mini, Speed, DualChart, Battery.
 //! Every widget draws into a horizontal strip of height `Theme::inner_h`.
 
-use crate::canvas::{Canvas, Color, FontSpec, FW_NORMAL, FW_SEMIBOLD, usage_color, GREEN, RED, YELLOW};
+use crate::canvas::{ramp, Canvas, Color, FontSpec, FW_NORMAL, FW_SEMIBOLD, usage_color, GREEN, ORANGE, RED, YELLOW};
 use crate::metrics::MetricsData;
 use crate::util::{format_bytes_rate, format_size};
 
@@ -75,18 +75,11 @@ impl Theme {
         self.modes[MODULES.iter().position(|m| *m == k).unwrap_or(0)]
     }
 
-    /// Utilisation colour, darker shades on a light taskbar so yellow/orange stay readable.
+    /// Utilisation colour flowing from `base` to yellow, orange and red (see `usage_color`),
+    /// darker shades on a light taskbar so yellow/orange stay readable.
     pub fn usage(&self, v: f32, base: Color) -> Color {
-        if v < 0.6 {
-            base
-        } else if self.light {
-            if v < 0.75 {
-                Color::rgb(0xB8, 0x86, 0x00)
-            } else if v < 0.9 {
-                Color::rgb(0xE0, 0x5A, 0x00)
-            } else {
-                Color::rgb(0xD3, 0x2F, 0x2F)
-            }
+        if self.light {
+            ramp(v, &[(0.5, base), (0.6, Color::rgb(0xB8, 0x86, 0x00)), (0.75, Color::rgb(0xE0, 0x5A, 0x00)), (0.9, Color::rgb(0xD3, 0x2F, 0x2F))])
         } else {
             usage_color(v, base)
         }
@@ -188,10 +181,13 @@ pub const CATALOG: &[(Kind, &str, &str)] = &[
     (Kind::Cpu, "cpu_bars", "widget.bar_chart"),
     (Kind::Cpu, "cpu_line", "widget.line_chart"),
     (Kind::Cpu, "cpu_mini", "widget.mini"),
+    (Kind::Cpu, "cpu_ring", "widget.ring"),
     (Kind::Gpu, "gpu", "widget.mini"),
     (Kind::Gpu, "gpu_line", "widget.line_chart"),
+    (Kind::Gpu, "gpu_ring", "widget.ring"),
     (Kind::Mem, "mem", "widget.mini"),
     (Kind::Mem, "mem_line", "widget.line_chart"),
+    (Kind::Mem, "mem_ring", "widget.ring"),
     (Kind::Mem, "mem_text", "widget.used_free"),
     (Kind::Disk, "disk", "widget.speed"),
     (Kind::Disk, "disk_chart", "widget.chart"),
@@ -315,6 +311,9 @@ pub fn build(names: &[String]) -> Vec<Box<dyn Widget>> {
             "cpu_bars" => out.push(Box::new(CpuBars)),
             "cpu_line" => out.push(Box::new(Line(Kind::Cpu))),
             "cpu_mini" => out.push(Box::new(Mini(Kind::Cpu))),
+            "cpu_ring" => out.push(Box::new(Ring(Kind::Cpu))),
+            "gpu_ring" => out.push(Box::new(Ring(Kind::Gpu))),
+            "mem_ring" => out.push(Box::new(Ring(Kind::Mem))),
             "gpu" => out.push(Box::new(Mini(Kind::Gpu))),
             "gpu_line" => out.push(Box::new(Line(Kind::Gpu))),
             "mem" => out.push(Box::new(Mini(Kind::Mem))),
@@ -477,6 +476,54 @@ impl Widget for Line {
 }
 
 // ---------------------------------------------------------------- Mini (label above value)
+
+// ---------------------------------------------------------------- ring gauge
+
+/// A ring that fills clockwise with the module's load, the percentage inside it and the
+/// vertical label beside it (CPU, memory, GPU).
+pub struct Ring(pub Kind);
+
+impl Ring {
+    /// A little more than the content row, so the number inside stays readable.
+    fn diameter(t: &Theme) -> i32 {
+        ((t.inner_h as f32) * 1.15).round() as i32
+    }
+}
+
+impl Widget for Ring {
+    fn kind(&self) -> Kind {
+        self.0
+    }
+    fn width(&self, _c: &mut Canvas, t: &Theme, _m: &MetricsData) -> i32 {
+        label_width(t) + Ring::diameter(t)
+    }
+    fn draw(&self, c: &mut Canvas, x: i32, y: i32, t: &Theme, m: &MetricsData) {
+        draw_label(c, x, y, t, &t.label(self.0));
+        let d = Ring::diameter(t) as f32;
+        let stroke = (d * 0.11).max(2.0);
+        let r = (d - stroke) / 2.0;
+        let cx = (x + label_width(t)) as f32 + d / 2.0;
+        let cy = y as f32 + t.inner_h as f32 / 2.0;
+        let tau = std::f32::consts::PI * 2.0;
+        c.stroke_arc(cx, cy, r, stroke, 0.0, tau, t.text.alpha(if t.light { 0.14 } else { 0.16 }));
+        let v = value(self.0, m).map(|v| v.clamp(0.0, 1.0));
+        if let Some(v) = v.filter(|v| *v > 0.005) {
+            c.stroke_arc(cx, cy, r, stroke, 0.0, tau * v, t.chart_color(self.0, v));
+        }
+        let text = match v {
+            Some(v) => format!("{}", (v * 100.0).round() as i32),
+            None => "--".into(),
+        };
+        // sized to the ring, not to the Font size setting, so "100" always fits inside
+        let f = FontSpec { px: (d * 0.37).round() as i32, weight: FW_SEMIBOLD };
+        let (tw, th) = c.measure_text(&text, f);
+        let col = match v {
+            Some(v) => t.value_color(self.0, v),
+            None => t.dim,
+        };
+        c.draw_text(&text, (cx - tw as f32 / 2.0).round() as i32, (cy - th as f32 / 2.0).round() as i32, f, col);
+    }
+}
 
 pub struct Mini(pub Kind);
 
@@ -723,16 +770,10 @@ fn temp_text(v: f32) -> String {
 }
 
 /// Plain up to 70 °C, then yellow, orange from 80, red from 90.
+/// Colour of a temperature (°C): the text colour up to 65, flowing to yellow at 70, orange at
+/// 80 and red at 90 (the old steps' thresholds).
 pub fn temp_color(t: &Theme, c: f32) -> Color {
-    if c >= 90.0 {
-        RED
-    } else if c >= 80.0 {
-        Color::rgb(0xFF, 0x98, 0x00)
-    } else if c >= 70.0 {
-        YELLOW
-    } else {
-        t.text
-    }
+    ramp(c, &[(65.0, t.text), (70.0, YELLOW), (80.0, ORANGE), (90.0, RED)])
 }
 
 impl Widget for TempWidget {
@@ -771,5 +812,52 @@ impl Widget for TempWidget {
             c.draw_text(&text, cx + (w - vw) / 2, top + lh - t.s(2.0), vf, col);
             cx += w + gap;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn theme() -> Theme {
+        Theme {
+            text: Color::rgb(240, 240, 240),
+            dim: Color::rgb(150, 150, 150),
+            accent: BLUE,
+            light: false,
+            scale: 1.0,
+            inner_h: 26,
+            labels: true,
+            font_scale: 1.0,
+            split_pe: true,
+            chart_w: 34.0,
+            bar_w: 3.0,
+            modes: [ColorMode::Accent; 7],
+            net_rx: true,
+            net_tx: true,
+        }
+    }
+
+    #[test]
+    fn temperatures_flow_from_text_to_red() {
+        let t = theme();
+        assert_eq!(temp_color(&t, 40.0), t.text);
+        assert_eq!(temp_color(&t, 65.0), t.text);
+        assert_eq!(temp_color(&t, 70.0), YELLOW);
+        assert_eq!(temp_color(&t, 80.0), ORANGE);
+        assert_eq!(temp_color(&t, 90.0), RED);
+        assert_eq!(temp_color(&t, 75.0), YELLOW.mix(ORANGE, 0.5));
+    }
+
+    #[test]
+    fn ring_widgets_exist_for_cpu_memory_and_gpu() {
+        for name in ["cpu_ring", "mem_ring", "gpu_ring"] {
+            assert!(CATALOG.iter().any(|(_, n, label)| *n == name && *label == "widget.ring"), "{name}");
+            assert_eq!(build(&[name.to_string()]).len(), 1, "{name}");
+        }
+        let t = theme();
+        let mut c = Canvas::new();
+        let w = Ring(Kind::Mem).width(&mut c, &t, &MetricsData::default());
+        assert_eq!(w, label_width(&t) + 30, "a 26 px row gets a 30 px ring");
     }
 }
