@@ -66,6 +66,79 @@ impl SensorHost {
     pub fn readings(&self) -> (Vec<Reading>, HelperInfo) {
         self.shared.lock().map(|g| (g.readings.clone(), g.info)).unwrap_or_default()
     }
+
+    /// The helper process ended by itself (crashed, killed, or gave up).
+    pub fn exited(&mut self) -> bool {
+        matches!(self.child.try_wait(), Ok(Some(_)))
+    }
+}
+
+/// How long to wait before starting the helper again after its `n`th stop in a row (1-based):
+/// 10 s, 20 s, 40 s … at most 10 minutes, so a helper that keeps failing costs next to nothing.
+pub fn restart_delay(n: u32) -> std::time::Duration {
+    let shift = n.saturating_sub(1).min(6);
+    std::time::Duration::from_secs((10u64 << shift).min(600))
+}
+
+/// A helper that ran this long before stopping counts as a fresh failure, not a repeated one.
+const STABLE: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// Keeps the helper running while advanced sensors are on: starts it, notices when it stops by
+/// itself and starts it again, waiting longer while it keeps failing. Lives on the collector
+/// thread; `sync` is called on every configuration change and every sample.
+#[derive(Default)]
+pub struct Supervisor {
+    host: Option<SensorHost>,
+    started: Option<std::time::Instant>,
+    retry_at: Option<std::time::Instant>,
+    failures: u32,
+    /// the helper stopped by itself and is waiting to be started again
+    stopped: bool,
+}
+
+impl Supervisor {
+    pub fn sync(&mut self, on: bool, interval_ms: u32) {
+        if !on {
+            *self = Supervisor::default();
+            return;
+        }
+        let now = std::time::Instant::now();
+        if let Some(h) = self.host.as_mut() {
+            if !h.exited() {
+                return;
+            }
+            let long_run = self.started.is_some_and(|t| now.duration_since(t) >= STABLE);
+            self.failures = if long_run { 1 } else { self.failures + 1 };
+            let wait = restart_delay(self.failures);
+            crate::log!("sensor helper stopped by itself; starting it again in {} s", wait.as_secs());
+            self.host = None;
+            self.stopped = true;
+            self.retry_at = Some(now + wait);
+            return;
+        }
+        if self.retry_at.is_some_and(|t| now < t) {
+            return;
+        }
+        self.host = SensorHost::start(interval_ms);
+        self.started = Some(now);
+        if self.host.is_some() {
+            self.stopped = false;
+            self.retry_at = None;
+        } else {
+            // missing or failing to start: try again later instead of on every sample
+            self.failures += 1;
+            self.retry_at = Some(now + restart_delay(self.failures));
+        }
+    }
+
+    pub fn host(&self) -> Option<&SensorHost> {
+        self.host.as_ref()
+    }
+
+    /// Switched on, but the helper stopped and is waiting to be started again.
+    pub fn restarting(&self) -> bool {
+        self.stopped && self.host.is_none()
+    }
 }
 
 impl Drop for SensorHost {
@@ -79,6 +152,21 @@ impl Drop for SensorHost {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn restarts_back_off_up_to_ten_minutes() {
+        let secs: Vec<u64> = (0..=9).map(|n| restart_delay(n).as_secs()).collect();
+        assert_eq!(secs, vec![10, 10, 20, 40, 80, 160, 320, 600, 600, 600]);
+        assert_eq!(restart_delay(u32::MAX).as_secs(), 600);
+    }
+
+    #[test]
+    fn switched_off_helper_is_not_restarting() {
+        let mut s = Supervisor::default();
+        s.sync(false, 2000);
+        assert!(s.host().is_none());
+        assert!(!s.restarting());
+    }
 
     #[test]
     fn release_only_uses_packaged_sensor_helper() {

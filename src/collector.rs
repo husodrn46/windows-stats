@@ -141,16 +141,9 @@ fn run(rx: Receiver<Cmd>, latest: Arc<Mutex<Option<MetricsData>>>, posted: Arc<A
 
     let mut details = false;
     let mut suspended = false;
-    // the optional sensor helper lives with the collectors
-    let mut host: Option<crate::sensorhost::SensorHost> = None;
-    let sync_host = |host: &mut Option<crate::sensorhost::SensorHost>, s: &Settings| {
-        if s.lhm && host.is_none() {
-            *host = crate::sensorhost::SensorHost::start(s.interval_ms.max(2000));
-        } else if !s.lhm {
-            *host = None;
-        }
-    };
-    sync_host(&mut host, &settings);
+    // the optional sensor helper lives with the collectors (started again if it stops)
+    let mut helper = crate::sensorhost::Supervisor::default();
+    helper.sync(settings.lhm, settings.interval_ms.max(2000));
     let interval = |s: &Settings| Duration::from_millis(s.interval_ms.clamp(250, 60_000) as u64);
     let mut next = Instant::now() + interval(&settings);
     let mut slow_logged = 0u32;
@@ -184,7 +177,7 @@ fn run(rx: Receiver<Cmd>, latest: Arc<Mutex<Option<MetricsData>>>, posted: Arc<A
                 if s.interval_ms != settings.interval_ms {
                     next = Instant::now() + interval(&s);
                 }
-                sync_host(&mut host, &s);
+                helper.sync(s.lhm, s.interval_ms.max(2000));
                 settings = s;
             }
             Ok(Cmd::Details(on)) => details = on,
@@ -216,7 +209,8 @@ fn run(rx: Receiver<Cmd>, latest: Arc<Mutex<Option<MetricsData>>>, posted: Arc<A
                 if !suspended {
                     let t0 = Instant::now();
                     metrics.update(details);
-                    match &host {
+                    helper.sync(settings.lhm, settings.interval_ms.max(2000));
+                    match helper.host() {
                         Some(h) => {
                             let (r, info) = h.readings();
                             let first = metrics.data.ext_sensors.is_empty() && !r.is_empty();
@@ -236,6 +230,7 @@ fn run(rx: Receiver<Cmd>, latest: Arc<Mutex<Option<MetricsData>>>, posted: Arc<A
                         None => metrics.data.apply_helper(Vec::new(), Default::default()),
                     }
                     metrics.data.helper_enabled = settings.lhm;
+                    metrics.data.helper_restarting = helper.restarting();
                     publish(&metrics);
                     let took = t0.elapsed();
                     if took > Duration::from_millis(250) && slow_logged < 20 {

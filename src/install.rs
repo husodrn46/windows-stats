@@ -84,16 +84,18 @@ fn create_shortcut(target: &Path, lnk: &Path) -> windows::core::Result<()> {
     }
 }
 
-/// Wait for a running instance to close after `--quit` (up to ~5 s).
-fn close_running() {
-    if crate::cli::quit_running() {
-        for _ in 0..50 {
-            std::thread::sleep(std::time::Duration::from_millis(100));
-            if !crate::cli::post_running(windows::Win32::UI::WindowsAndMessaging::WM_NULL) {
-                break;
-            }
+/// Close a running instance and wait for it (up to ~5 s); true when one was running.
+fn close_running() -> bool {
+    if !crate::cli::quit_running() {
+        return false;
+    }
+    for _ in 0..50 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        if !crate::cli::post_running(windows::Win32::UI::WindowsAndMessaging::WM_NULL) {
+            break;
         }
     }
+    true
 }
 
 /// Copy the program next to `exe` (with the helper, licences and notices) into `dir`.
@@ -125,13 +127,16 @@ pub fn install(quiet: bool) {
         }
         return;
     }
-    close_running();
+    let was_running = close_running();
     let size = match copy_files(&exe, &dir) {
         Ok(size) => size,
         Err(e) => {
             crate::log!("install failed: {e}");
             if !quiet {
                 message(&tf("install.failed", &[("err", &e.to_string())]), MB_OK | MB_ICONWARNING);
+            } else if was_running {
+                // bring back whatever is installed rather than leave the user without it
+                let _ = std::process::Command::new(dir.join("WindowsStats.exe")).spawn();
             }
             return;
         }
@@ -140,7 +145,13 @@ pub fn install(quiet: bool) {
     crate::log!("installed to {}", dir.display());
     // the autostart value points at the installed copy
     if quiet {
-        // scripted: no questions, no autostart, not started
+        // scripted (winget, scripts): no questions, no autostart; started again only if the
+        // install closed a running copy, so an upgrade does not leave the taskbar without it.
+        // winget waits for this process only; a caller that waits for every process it
+        // started (PowerShell's Start-Process -Wait) keeps waiting while the app runs.
+        if was_running {
+            let _ = std::process::Command::new(&installed).spawn();
+        }
         return;
     }
     if message(&t("install.autostart"), MB_YESNO | MB_ICONQUESTION) == IDYES {
