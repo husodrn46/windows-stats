@@ -703,9 +703,20 @@ impl Widget for BatteryWidget {
 
 // ---------------------------------------------------------------- temperature (Sensors module)
 
-/// The hottest measured temperature with where it comes from above it (CPU / GPU / SSD), like
-/// the Mini widget; takes no room on a machine that reports no temperature at all.
+/// The CPU and GPU temperatures side by side, each with where it comes from above it, like the
+/// Mini widget (a lone SSD value when neither reports); takes no room on a machine that reports
+/// no temperature at all.
 pub struct TempWidget;
+
+impl TempWidget {
+    /// Width of one label-over-value column; the same for every column so the strip stays
+    /// steady as values change.
+    fn column_w(&self, c: &mut Canvas, t: &Theme) -> i32 {
+        let reserve = c.measure_text("100\u{00B0}", t.font(11.0, FW_SEMIBOLD)).0;
+        let lw = c.measure_text("CPU", t.font(7.5, FW_NORMAL)).0;
+        reserve.max(lw)
+    }
+}
 
 fn temp_text(v: f32) -> String {
     format!("{v:.0}\u{00B0}")
@@ -729,29 +740,36 @@ impl Widget for TempWidget {
         Kind::Sensors
     }
     fn width(&self, c: &mut Canvas, t: &Theme, m: &MetricsData) -> i32 {
-        if m.headline_temp().is_none() {
+        let n = m.strip_temps().len() as i32;
+        if n == 0 {
             return 0;
         }
-        let reserve = c.measure_text("100\u{00B0}", t.font(11.0, FW_SEMIBOLD)).0;
-        let lw = c.measure_text("CPU", t.font(7.5, FW_NORMAL)).0;
-        reserve.max(lw)
+        n * self.column_w(c, t) + (n - 1) * t.s(4.0)
     }
     fn draw(&self, c: &mut Canvas, x: i32, y: i32, t: &Theme, m: &MetricsData) {
-        let Some((src, v)) = m.headline_temp() else { return };
-        let w = self.width(c, t, m);
+        let temps = m.strip_temps();
+        if temps.is_empty() {
+            return;
+        }
+        let w = self.column_w(c, t);
+        let gap = t.s(4.0);
         let lf = t.font(7.5, FW_NORMAL);
         let vf = t.font(11.0, FW_SEMIBOLD);
-        let (lw, lh) = c.measure_text(src, lf);
-        let text = temp_text(v);
-        let (vw, vh) = c.measure_text(&text, vf);
-        let total = lh + vh - t.s(2.0);
-        let top = y + (t.inner_h - total) / 2;
-        c.draw_text(src, x + (w - lw) / 2, top, lf, t.dim);
-        let col = match t.mode(Kind::Sensors) {
-            ColorMode::Mono => t.text,
-            ColorMode::Fixed(f) => f,
-            _ => temp_color(t, v),
-        };
-        c.draw_text(&text, x + (w - vw) / 2, top + lh - t.s(2.0), vf, col);
+        let mut cx = x;
+        for (src, v) in temps {
+            let (lw, lh) = c.measure_text(src, lf);
+            let text = temp_text(v);
+            let (vw, vh) = c.measure_text(&text, vf);
+            let total = lh + vh - t.s(2.0);
+            let top = y + (t.inner_h - total) / 2;
+            c.draw_text(src, cx + (w - lw) / 2, top, lf, t.dim);
+            let col = match t.mode(Kind::Sensors) {
+                ColorMode::Mono => t.text,
+                ColorMode::Fixed(f) => f,
+                _ => temp_color(t, v),
+            };
+            c.draw_text(&text, cx + (w - vw) / 2, top + lh - t.s(2.0), vf, col);
+            cx += w + gap;
+        }
     }
 }

@@ -135,6 +135,23 @@ impl MetricsData {
         self.disks.iter().filter_map(|d| d.temp_c).fold(None, |a: Option<f32>, t| Some(a.map_or(t, |a| a.max(t)))).map(|t| ("SSD", t))
     }
 
+    /// What the strip's temperature widget shows, left to right: the CPU and the GPU when each
+    /// reports a temperature, otherwise just the headline value (so an SSD still shows up on a
+    /// machine with neither). Empty when nothing reports a temperature.
+    pub fn strip_temps(&self) -> Vec<(&'static str, f32)> {
+        let mut out = Vec::with_capacity(2);
+        if let Some(t) = self.cpu_temp {
+            out.push(("CPU", t));
+        }
+        if let Some(t) = self.gpu_temp {
+            out.push(("GPU", t));
+        }
+        if out.is_empty() {
+            out.extend(self.headline_temp());
+        }
+        out
+    }
+
     /// Where to draw a divider in the core charts: before core i when its socket or its
     /// efficiency class differs from core i-1.
     pub fn cpu_breaks(&self) -> Vec<bool> {
