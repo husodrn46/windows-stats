@@ -8,7 +8,7 @@ Build the current source using the README instructions. For each capture use a n
 
 - `strip.bmp`: application strip only.
 - `popup-<kind>.bmp`: application's own popup canvas only.
-- `settings-<n>.bmp`: settings page, selected with `WINDOWS_STATS_SETTINGS_PAGE=<0..6>` and `--settings`.
+- `settings-<n>.bmp`: settings page, selected with `WINDOWS_STATS_SETTINGS_PAGE=<0..7>` and `--settings`.
 
 Use `popup_opacity = "solid"` in the scratch configuration for a self-contained panel image. Do not enable elevated sensors or install drivers for a capture without the user's permission. Unsupported sensors must remain unavailable; do not invent readings.
 

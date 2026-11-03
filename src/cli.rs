@@ -80,6 +80,11 @@ pub fn run(args: &[String]) -> bool {
             }
             true
         }
+        "--mcp" => {
+            // a read-only MCP server for AI apps on stdin/stdout (see mcp.rs)
+            crate::mcp::run();
+            true
+        }
         "--check-update" => {
             // what Settings > About > Check for updates would find, for scripts and support
             attach_console();
@@ -109,7 +114,7 @@ pub fn run(args: &[String]) -> bool {
         }
         "--help" | "-h" | "/?" => {
             attach_console();
-            println!("Windows Stats {}\n\nWindowsStats.exe                 start (taskbar widgets)\nWindowsStats.exe --dump [n] [ms] print n samples as JSON lines\nWindowsStats.exe --quit          close the running instance\nWindowsStats.exe --check-update  ask GitHub for a newer release\nWindowsStats.exe --version", crate::about::VERSION);
+            println!("Windows Stats {}\n\nWindowsStats.exe                 start (taskbar widgets)\nWindowsStats.exe --dump [n] [ms] print n samples as JSON lines\nWindowsStats.exe --quit          close the running instance\nWindowsStats.exe --check-update  ask GitHub for a newer release\nWindowsStats.exe --mcp           read-only MCP server for AI apps (stdin/stdout)\nWindowsStats.exe --version", crate::about::VERSION);
             true
         }
         _ => false,

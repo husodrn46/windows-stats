@@ -34,6 +34,10 @@ pub enum Effect {
     UpdateCheck,
     /// download, verify and install the release found by the last check
     UpdateInstall,
+    /// forget the saved AI sessions
+    AiClear,
+    /// put the MCP setup for AI apps on the clipboard
+    McpCopy,
 }
 
 struct Hit {
@@ -53,7 +57,10 @@ pub struct Settings {
     mouse: Option<(i32, i32)>,
 }
 
-pub const PAGES: &[&str] = &["settings.page_general", "settings.page_appearance", "settings.page_widgets", "settings.page_sensors", "settings.page_alerts", "settings.page_privacy", "settings.page_about"];
+pub const PAGES: &[&str] = &["settings.page_general", "settings.page_appearance", "settings.page_widgets", "settings.page_sensors", "settings.page_alerts", "settings.page_ai", "settings.page_privacy", "settings.page_about"];
+/// Pages opened from cards in the corner.
+pub const PAGE_AI: usize = 5;
+pub const PAGE_ABOUT: usize = 7;
 
 impl Settings {
     pub fn new(hinstance: HINSTANCE, class: &str) -> Option<Self> {
@@ -76,7 +83,7 @@ impl Settings {
             )
             .ok()?
         };
-        // tests open a given page: WINDOWS_STATS_SETTINGS_PAGE=<0..5>
+        // tests open a given page: WINDOWS_STATS_SETTINGS_PAGE=<0..7>
         let page = std::env::var("WINDOWS_STATS_SETTINGS_PAGE").ok().and_then(|v| v.parse().ok()).unwrap_or(0).min(PAGES.len() - 1);
         Some(Self { hwnd, canvas: Canvas::new(), visible: false, page, scroll: 0, content_h: 0, hits: Vec::new(), mouse: None })
     }
@@ -191,7 +198,8 @@ impl Settings {
             2 => page_widgets(&mut ui, cfg, m),
             3 => page_sensors(&mut ui, cfg, m),
             4 => page_alerts(&mut ui, cfg, m),
-            5 => page_privacy(&mut ui, cfg),
+            5 => page_ai(&mut ui, cfg, m),
+            6 => page_privacy(&mut ui, cfg),
             _ => page_about(&mut ui, update),
         }
         self.content_h = ui.y + self.scroll;
@@ -726,6 +734,32 @@ fn page_alerts(ui: &mut Ui, cfg: &Config, m: &MetricsData) {
         }
     }
     let _ = Metric::ALL;
+}
+
+fn page_ai(ui: &mut Ui, cfg: &Config, m: &MetricsData) {
+    ui.heading(&t("settings.page_ai"));
+    ui.note(&t("ai.desc"));
+    let on = cfg.ai_watch == Some(true);
+    let r = ui.row(&t("ai.watch"), &t("ai.watch_desc"));
+    ui.toggle(r, on, cfg_fx(move |c| c.ai_watch = Some(!on)));
+
+    ui.section(&t("ai.sessions"));
+    if let Some(s) = m.ai_live.as_ref().filter(|_| on) {
+        ui.row(&crate::i18n::tf("ai.now", &[("name", &crate::aiwatch::title(s))]), &crate::aiwatch::summary(s));
+    }
+    let recent = crate::aiwatch::recent(10);
+    if recent.is_empty() {
+        ui.note(&t(if on { "ai.none_yet" } else { "ai.none_off" }));
+    } else {
+        for s in &recent {
+            ui.row(&format!("{} \u{00B7} {}", crate::aiwatch::when(s.start), crate::aiwatch::title(s)), &crate::aiwatch::summary(s));
+        }
+        ui.button(None, &t("ai.clear"), Effect::AiClear);
+    }
+
+    ui.section(&t("ai.mcp"));
+    ui.note(&t("ai.mcp_desc"));
+    ui.button(None, &t("ai.mcp_copy"), Effect::McpCopy);
 }
 
 fn page_privacy(ui: &mut Ui, cfg: &Config) {

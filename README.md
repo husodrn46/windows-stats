@@ -19,6 +19,12 @@ Inspired by [Stats](https://github.com/exelban/stats) for macOS and built on
   start with Windows, threshold notifications, sensors, privacy.
 - **Notifications**, e.g. "warn when CPU usage stays above 90% for 60 seconds". Values
   the device cannot measure never raise a notification.
+- **Local AI sessions** (optional, asked the first time): while a model runs in Ollama, llama.cpp,
+  KoboldCpp or LocalAI, Windows Stats notes the highest CPU, GPU, video memory, memory and
+  temperatures, shows a summary when it ends and keeps the sessions in Settings > AI.
+- **For AI apps (MCP):** LM Studio, Claude Desktop, VS Code and other MCP clients can read this
+  computer's load and the AI sessions read-only, also with local models. See
+  [docs/mcp.md](docs/mcp.md).
 - **Interface in English and Turkish** (plus 27 more languages from winstats, partly translated);
   the Windows display language is picked automatically.
 
@@ -140,6 +146,15 @@ as CPU temperatures may therefore be unavailable, even if you separately install
   measurement. It is off by default. While the network panel is open, it sends ICMP echo requests only to the address you
   choose. Hostnames may require a DNS lookup. It never falls back to TCP or probes adapter DNS
   servers or gateways; if ICMP is blocked, latency is unavailable.
+- **Local AI sessions are optional too.** The first time a model runs, Windows Stats asks whether
+  to follow such sessions; Settings > AI changes the answer. To notice a model it looks at the
+  names of running programs every three seconds, on this computer only. To show the model's name
+  it asks the runtime at its own local address (`127.0.0.1`, e.g. Ollama's port 11434); nothing
+  leaves the computer. Sessions are kept in `ai-sessions.jsonl` next to the settings and can be
+  deleted in Settings > AI.
+- **MCP** runs only when an AI app starts `WindowsStats.exe --mcp`; it talks through pipes, opens
+  no port and is read-only. Names of running programs are given only by its `top_processes` tool:
+  with a cloud model, the AI app sends them to that service.
 - Never asks for administrator rights (`asInvoker`); uses only per-user keys (`HKCU`).
 - Measuring runs on its own thread, so the window embedded in the taskbar never waits for it and
   cannot make Explorer hang. When Explorer restarts, the strip reattaches by itself.
@@ -183,6 +198,8 @@ WindowsStats.exe --uninstall       uninstall (--quiet: no questions, settings ke
 WindowsStats.exe --quit            close the running app cleanly
 WindowsStats.exe --dump 10 1000    print 10 samples as JSON lines
 WindowsStats.exe --taskbar-items   list the taskbar's items (diagnostics)
+WindowsStats.exe --check-update    ask GitHub for a newer release
+WindowsStats.exe --mcp             read-only MCP server for AI apps (docs/mcp.md)
 WindowsStats.exe --version
 ```
 

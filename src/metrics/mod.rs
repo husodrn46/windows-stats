@@ -103,6 +103,8 @@ pub struct MetricsData {
     pub helper_enabled: bool,
     /// the helper stopped by itself and is about to be started again
     pub helper_restarting: bool,
+    /// a local AI session being followed right now
+    pub ai_live: Option<crate::aiwatch::Session>,
 }
 
 impl MetricsData {
@@ -333,6 +335,19 @@ impl Metrics {
         d.net_iface = self.net.iface_name.clone();
         d.net_ip = self.net.iface_ip.clone();
         d.net_ifaces = self.net.ifaces.clone();
+    }
+
+    /// Video memory, drives, battery details and per-disk rates now, without the process lists
+    /// (the MCP server's overview).
+    pub fn refresh_details(&mut self) {
+        self.update_details();
+    }
+
+    /// Video memory only (a cheap DXGI query): every sample while an AI session is watched.
+    pub fn refresh_vram(&mut self) {
+        self.gpu_dev.update();
+        self.data.vram_used = self.gpu_dev.vram_used;
+        self.data.vram_budget = self.gpu_dev.vram_budget;
     }
 
     fn update_details(&mut self) {

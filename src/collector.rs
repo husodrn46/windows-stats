@@ -28,6 +28,9 @@ pub struct Settings {
     pub cpu_utility: bool,
     /// run the LibreHardwareMonitor helper
     pub lhm: bool,
+    /// follow local AI sessions (None: not asked yet; detection still runs to ask)
+    pub ai_watch: Option<bool>,
+    pub ai_processes: Vec<String>,
 }
 
 impl Settings {
@@ -41,6 +44,8 @@ impl Settings {
             group_pe: cfg.group_pe_cores,
             cpu_utility: cfg.cpu_utility,
             lhm: cfg.lhm_sensors,
+            ai_watch: cfg.ai_watch,
+            ai_processes: cfg.ai_processes.clone(),
         }
     }
 }
@@ -143,6 +148,8 @@ fn run(rx: Receiver<Cmd>, latest: Arc<Mutex<Option<MetricsData>>>, posted: Arc<A
     let mut suspended = false;
     // the optional sensor helper lives with the collectors (started again if it stops)
     let mut helper = crate::sensorhost::Supervisor::default();
+    // local AI sessions: looks at the process list every few seconds
+    let mut ai = crate::aiwatch::Watch::new(HWND(hwnd as *mut _));
     helper.sync(settings.lhm, settings.interval_ms.max(2000));
     let interval = |s: &Settings| Duration::from_millis(s.interval_ms.clamp(250, 60_000) as u64);
     let mut next = Instant::now() + interval(&settings);
@@ -231,6 +238,11 @@ fn run(rx: Receiver<Cmd>, latest: Arc<Mutex<Option<MetricsData>>>, posted: Arc<A
                     }
                     metrics.data.helper_enabled = settings.lhm;
                     metrics.data.helper_restarting = helper.restarting();
+                    if ai.active() {
+                        metrics.refresh_vram();
+                    }
+                    ai.tick(settings.ai_watch, &metrics.data, &settings.ai_processes);
+                    metrics.data.ai_live = ai.current();
                     publish(&metrics);
                     let took = t0.elapsed();
                     if took > Duration::from_millis(250) && slow_logged < 20 {

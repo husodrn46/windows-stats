@@ -85,6 +85,11 @@ pub struct Config {
     /// Motion: values glide between samples, panels slide in. Also off while Windows'
     /// animation effects are off.
     pub animations: bool,
+    /// Follow local AI model sessions (Ollama, llama.cpp, ...): absent until the user has been
+    /// asked, the first time a model is seen.
+    pub ai_watch: Option<bool>,
+    /// More programs that run models, by executable name ("myrunner.exe").
+    pub ai_processes: Vec<String>,
 }
 
 impl Default for Config {
@@ -132,6 +137,8 @@ impl Default for Config {
             update_last_check: 0,
             update_notified: String::new(),
             animations: true,
+            ai_watch: None,
+            ai_processes: Vec::new(),
         }
     }
 }
