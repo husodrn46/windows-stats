@@ -12,7 +12,9 @@
     <PlatformTarget>x64</PlatformTarget>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <BaseOutputPath>..\..\target\sensors\bin\</BaseOutputPath>
+    <!-- scripts/build.ps1 passes the release version from Cargo.toml (-p:Version) -->
     <Version>0.1.0</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Company>Windows Stats</Company>
     <Product>Windows Stats</Product>
     <Description>Windows Stats sensor helper (LibreHardwareMonitorLib)</Description>

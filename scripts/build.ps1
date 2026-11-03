@@ -64,7 +64,8 @@ if (-not $NoPackage) {
     Copy-Item (Join-Path $root 'scripts\Kur.cmd') (Join-Path $dist 'Kur.cmd')
     # optional sensor helper (LibreHardwareMonitorLib): needs the .NET SDK to build
     if (Get-Command dotnet -ErrorAction SilentlyContinue) {
-        & dotnet build (Join-Path $root 'helpers\sensors\WindowsStats.Sensors.csproj') -c Release --nologo -v quiet
+        # the helper carries the release version, so both executables report the same product version
+        & dotnet build (Join-Path $root 'helpers\sensors\WindowsStats.Sensors.csproj') -c Release --nologo -v quiet "-p:Version=$version"
         if ($LASTEXITCODE -ne 0) { throw "sensor helper build failed ($LASTEXITCODE)" }
         $helper = Join-Path $root 'target\sensors\bin\Release\net48'
         $sdir = Join-Path $dist 'sensors'
