@@ -82,6 +82,9 @@ pub struct Config {
     pub update_last_check: u64,
     /// The newest version the user was told about, so each release is announced once.
     pub update_notified: String,
+    /// Motion: values glide between samples, panels slide in. Also off while Windows'
+    /// animation effects are off.
+    pub animations: bool,
 }
 
 impl Default for Config {
@@ -128,6 +131,7 @@ impl Default for Config {
             update_check: None,
             update_last_check: 0,
             update_notified: String::new(),
+            animations: true,
         }
     }
 }
