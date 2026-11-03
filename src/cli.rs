@@ -71,6 +71,26 @@ pub fn run(args: &[String]) -> bool {
             crate::install::install(args.iter().any(|a| a == "--quiet"));
             true
         }
+        "--update" => {
+            // started by the running copy after it downloaded and verified this release
+            crate::i18n::set_language(&crate::config::Config::load_readonly().language);
+            match args.get(1).and_then(|p| p.parse::<u32>().ok()) {
+                Some(pid) => crate::install::update(pid),
+                None => crate::log!("--update without the process id of the running copy"),
+            }
+            true
+        }
+        "--check-update" => {
+            // what Settings > About > Check for updates would find, for scripts and support
+            attach_console();
+            let (a, b, c) = crate::update::current();
+            match crate::update::check() {
+                Ok(Some(r)) => println!("Windows Stats {a}.{b}.{c}: version {} is available ({})", r.name, r.page),
+                Ok(None) => println!("Windows Stats {a}.{b}.{c} is up to date"),
+                Err(e) => println!("update check failed ({:?}): {}", e.kind, e.detail),
+            }
+            true
+        }
         "--uninstall" => {
             crate::i18n::set_language(&crate::config::Config::load_readonly().language);
             crate::install::uninstall(args.iter().any(|a| a == "--quiet"));
@@ -89,7 +109,7 @@ pub fn run(args: &[String]) -> bool {
         }
         "--help" | "-h" | "/?" => {
             attach_console();
-            println!("Windows Stats {}\n\nWindowsStats.exe                 start (taskbar widgets)\nWindowsStats.exe --dump [n] [ms] print n samples as JSON lines\nWindowsStats.exe --quit          close the running instance\nWindowsStats.exe --version", crate::about::VERSION);
+            println!("Windows Stats {}\n\nWindowsStats.exe                 start (taskbar widgets)\nWindowsStats.exe --dump [n] [ms] print n samples as JSON lines\nWindowsStats.exe --quit          close the running instance\nWindowsStats.exe --check-update  ask GitHub for a newer release\nWindowsStats.exe --version", crate::about::VERSION);
             true
         }
         _ => false,

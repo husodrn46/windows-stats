@@ -25,6 +25,7 @@ mod procicon;
 mod taskbar;
 mod taskbar_uia;
 mod toast;
+mod update;
 mod util;
 mod widgets;
 
@@ -68,6 +69,12 @@ const ZBURST_TICKS: u32 = 14;
 /// re-attached after an Explorer restart
 const TIMER_WATCH: usize = 5;
 const WATCH_MS: u32 = 5000;
+/// optional updates: whether the daily check is due (and old downloads to remove), every 15 min
+const TIMER_UPDATE: usize = 11;
+const UPDATE_TIMER_MS: u32 = 15 * 60 * 1000;
+/// optional updates: the one-time question, a few seconds after the first start of this version
+const TIMER_UPDATE_ASK: usize = 12;
+const UPDATE_ASK_MS: u32 = 8000;
 /// auto mode, floating because the taskbar refused the strip: how often embedding is retried
 const EMBED_RETRY: std::time::Duration = std::time::Duration::from_secs(60);
 
@@ -145,7 +152,15 @@ struct App {
     /// threshold notifications: rule timers and the card that shows them
     alerts: alerts::Alerts,
     toast: toast::Toast,
+    /// the card on screen announces a new version: a click opens Settings > About
+    toast_opens_about: bool,
     settings: settings::Settings,
+    /// optional updates: what Settings > About shows and what is running
+    update: update::State,
+    /// no automatic check before this (an hour after a failed one)
+    update_retry_at: std::time::Instant,
+    /// leftovers of an earlier update were removed
+    update_cleaned: bool,
 }
 
 /// A full-screen Direct3D game or a presentation is in front: the shell says so, or the
@@ -329,7 +344,11 @@ fn main() {
             embed_probe_at: std::time::Instant::now(),
             alerts: alerts::Alerts::default(),
             toast,
+            toast_opens_about: false,
             settings,
+            update: update::State::Idle,
+            update_retry_at: std::time::Instant::now(),
+            update_cleaned: false,
         })
     });
 
@@ -352,6 +371,10 @@ fn main() {
     }
     unsafe {
         SetTimer(hidden, TIMER_WATCH, WATCH_MS, None);
+        SetTimer(hidden, TIMER_UPDATE, UPDATE_TIMER_MS, None);
+        if cfg.update_check.is_none() {
+            SetTimer(hidden, TIMER_UPDATE_ASK, UPDATE_ASK_MS, None);
+        }
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).into() {
             let _ = TranslateMessage(&msg);
@@ -651,7 +674,102 @@ impl App {
             let theme = self.theme();
             let light = self.is_light();
             self.toast.show(&theme, light, &t("alerts.title"), &body);
+            self.toast_opens_about = false;
         }
+    }
+
+    /// Ask GitHub for a newer release: `automatic` = the daily check, quiet unless it finds one.
+    fn check_for_update(&mut self, automatic: bool) {
+        if self.update.busy() {
+            return;
+        }
+        if !automatic {
+            self.update = update::State::Checking;
+            self.settings.invalidate();
+        }
+        update::start_check(self.hidden, automatic);
+    }
+
+    /// TIMER_UPDATE: tidy up after an earlier update, and run the daily check when it is due.
+    fn update_timer(&mut self) {
+        if !self.update_cleaned {
+            self.update_cleaned = true;
+            update::clean_temp();
+        }
+        let now = std::time::Instant::now();
+        if update::due(self.cfg.update_check, self.cfg.update_last_check, update::now_secs()) && now >= self.update_retry_at && !self.update.busy() {
+            // a failed check (offline) is retried in an hour, not every timer tick
+            self.update_retry_at = now + std::time::Duration::from_secs(3600);
+            self.check_for_update(true);
+        }
+    }
+
+    /// The one-time question about the daily check has been answered.
+    fn set_update_check(&mut self, on: bool) {
+        log!("update check {}", if on { "allowed" } else { "declined" });
+        self.cfg.update_check = Some(on);
+        self.cfg.save();
+        self.settings.invalidate();
+        if on {
+            self.update_timer();
+        }
+    }
+
+    /// WM_APP_UPDATE: a check or a download finished on its thread.
+    fn update_outcomes(&mut self) {
+        use update::{Outcome, State};
+        for outcome in update::take_outcomes() {
+            match outcome {
+                Outcome::Checked { automatic, result: Ok(found) } => {
+                    self.cfg.update_last_check = update::now_secs();
+                    match found {
+                        Some(r) => {
+                            log!("update: {} is available", r.name);
+                            if automatic && self.cfg.update_notified != r.name {
+                                self.cfg.update_notified = r.name.clone();
+                                self.show_update_toast(&r);
+                            }
+                            if !matches!(self.update, State::Downloading(_)) {
+                                self.update = State::Available(r);
+                            }
+                        }
+                        None => {
+                            if !matches!(self.update, State::Downloading(_)) {
+                                self.update = State::UpToDate;
+                            }
+                        }
+                    }
+                    self.cfg.save();
+                }
+                Outcome::Checked { automatic, result: Err(e) } => {
+                    log!("update check failed ({:?}): {}", e.kind, e.detail);
+                    if !automatic {
+                        self.update = State::Failed(e.kind);
+                    }
+                }
+                Outcome::Downloaded(Ok(())) => {
+                    // the new version took over: it waits for this process to end, then
+                    // installs itself and starts
+                    log!("update: the new version took over, closing");
+                    unsafe {
+                        let _ = PostMessageW(self.hidden, WM_CLOSE, WPARAM(0), LPARAM(0));
+                    }
+                }
+                Outcome::Downloaded(Err(e)) => {
+                    log!("update download failed ({:?}): {}", e.kind, e.detail);
+                    self.update = State::Failed(e.kind);
+                }
+            }
+        }
+        self.settings.invalidate();
+    }
+
+    /// The card in the corner: a new version; clicking it opens Settings > About.
+    fn show_update_toast(&mut self, r: &update::Release) {
+        let theme = self.theme();
+        let light = self.is_light();
+        self.toast.show(&theme, light, &i18n::tf("update.toast_title", &[("version", &r.name)]), &t("update.toast_body"));
+        self.toast_opens_about = true;
     }
 
     /// Latency rows: the ping thread's last readings go into the snapshot the popup draws.
@@ -893,6 +1011,17 @@ impl App {
                 if let Some(code) = language_menu(self.settings.hwnd, &self.cfg.language) {
                     self.cfg.language = code;
                     self.after_config_change();
+                }
+            }
+            Effect::UpdateCheck => self.check_for_update(false),
+            Effect::UpdateInstall => {
+                if let update::State::Available(r) = &self.update {
+                    if update::can_install() {
+                        log!("update: downloading {}", r.name);
+                        let r = r.clone();
+                        self.update = update::State::Downloading(r.clone());
+                        update::start_download(self.hidden, r);
+                    }
                 }
             }
             Effect::Cfg(f) => {
@@ -1221,8 +1350,25 @@ unsafe extern "system" fn hidden_wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, l
                         }
                     });
                 }
+                TIMER_UPDATE => {
+                    with_app(|app| app.update_timer());
+                }
+                TIMER_UPDATE_ASK => {
+                    unsafe {
+                        let _ = KillTimer(hwnd, TIMER_UPDATE_ASK);
+                    }
+                    // the message box runs its own message loop: ask without holding the app
+                    if with_app(|app| app.cfg.update_check.is_none()).unwrap_or(false) {
+                        let on = ask_update_check();
+                        with_app(|app| app.set_update_check(on));
+                    }
+                }
                 _ => {}
             }
+            LRESULT(0)
+        }
+        update::WM_APP_UPDATE => {
+            with_app(|app| app.update_outcomes());
             LRESULT(0)
         }
         WM_APP_OPEN_SETTINGS => {
@@ -1361,13 +1507,31 @@ unsafe extern "system" fn bar_wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
     }
 }
 
+/// The one-time question about the daily update check (yes: allowed).
+fn ask_update_check() -> bool {
+    let text = wide(&t("update.ask"));
+    let title = wide("Windows Stats");
+    // topmost: started with Windows, the question must not hide behind other windows
+    unsafe { MessageBoxW(None, pcwstr(&text), pcwstr(&title), MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_TOPMOST) == IDYES }
+}
+
 unsafe extern "system" fn toast_wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_TIMER if wparam.0 == toast::TOAST_TIMER => {
             with_app(|app| app.toast.hide());
             LRESULT(0)
         }
-        WM_LBUTTONUP | WM_RBUTTONUP => {
+        WM_LBUTTONUP => {
+            with_app(|app| {
+                app.toast.hide();
+                if std::mem::take(&mut app.toast_opens_about) {
+                    app.settings.page = settings::PAGES.len() - 1;
+                    app.open_settings();
+                }
+            });
+            LRESULT(0)
+        }
+        WM_RBUTTONUP => {
             with_app(|app| app.toast.hide());
             LRESULT(0)
         }
@@ -1543,7 +1707,7 @@ unsafe extern "system" fn settings_wndproc(hwnd: HWND, msg: u32, wparam: WPARAM,
         WM_PAINT => {
             let painted = with_app(|app| {
                 let th = app.theme();
-                app.settings.paint(&th, &app.cfg, &app.metrics, util::autostart_enabled());
+                app.settings.paint(&th, &app.cfg, &app.metrics, util::autostart_enabled(), &app.update);
             });
             if painted.is_none() {
                 let mut ps = PAINTSTRUCT::default();

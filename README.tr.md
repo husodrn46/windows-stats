@@ -113,8 +113,16 @@ yerine **"Bu cihazda kullanılamıyor"** olarak görünür.
 
 ## Gizlilik ve güvenlik
 
-- Telemetri, analitik ve otomatik güncelleme kontrolü **yoktur**. Uygulama ağ portu açmaz ve
-  internet bağlantısı gerektirmez.
+- Telemetri ve analitik **yoktur**. Uygulama ağ portu açmaz ve internet bağlantısı gerektirmez.
+- **Güncellemeler isteğe bağlıdır.** Ayarlar > Hakkında > Güncellemeleri denetle, GitHub'a son
+  sürümü yalnızca siz tıkladığınızda sorar. Windows Stats ilk açılışta, kendiliğinden denetleyip
+  denetlemeyeceğini bir kez sorar (günde en fazla bir kez); cevabı istediğiniz zaman Ayarlar >
+  Gizlilik'ten değiştirebilirsiniz. Denetim, api.github.com'a tek bir HTTPS isteğidir: GitHub IP
+  adresinizi ve Windows Stats sürümünü görür, başka hiçbir şey gönderilmez. Güncellemeyi kurmak,
+  sürüm arşivini GitHub'dan indirir, GitHub'ın bildirdiği boyut ve SHA-256 özetiyle eşleşmesini
+  ister ve yönetici izni olmadan kullanıcıya ait kurulumu değiştirir; yeni sürüm açılmazsa
+  çalışan sürüm yerinde kalır. Sürümler imzasız olduğundan bu, arşivi sürümler sayfasından elle
+  indirmekle aynı güvencedir.
 - Tek isteğe bağlı ağ işlemi ağ panelindeki gecikme ölçümüdür. Varsayılan olarak kapalıdır ve
   ağ paneli açıkken yalnızca seçtiğiniz adrese ICMP gönderir. Ana bilgisayar adı girilirse DNS
   çözümlemesi gerekebilir. TCP'ye geçmez, bağdaştırıcı DNS sunucularını veya ağ geçitlerini

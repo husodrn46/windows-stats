@@ -96,6 +96,25 @@ fn close_running() {
     }
 }
 
+/// Copy the program next to `exe` (with the helper, licences and notices) into `dir`.
+fn copy_files(exe: &Path, dir: &Path) -> std::io::Result<u64> {
+    let src = exe.parent().map(Path::to_path_buf).unwrap_or_default();
+    let mut size: u64 = 0;
+    std::fs::create_dir_all(dir)?;
+    size += std::fs::copy(exe, dir.join("WindowsStats.exe"))?;
+    for f in ["LICENSE.txt", "THIRD-PARTY-NOTICES.txt", "README.md"] {
+        if src.join(f).exists() {
+            size += std::fs::copy(src.join(f), dir.join(f))?;
+        }
+    }
+    for d in ["sensors", "licenses"] {
+        if src.join(d).is_dir() {
+            size += copy_dir(&src.join(d), &dir.join(d))?;
+        }
+    }
+    Ok(size)
+}
+
 pub fn install(quiet: bool) {
     let Ok(exe) = std::env::current_exe() else { return };
     let src = exe.parent().map(Path::to_path_buf).unwrap_or_default();
@@ -107,29 +126,80 @@ pub fn install(quiet: bool) {
         return;
     }
     close_running();
-    let mut size: u64 = 0;
-    let result = (|| -> std::io::Result<()> {
-        std::fs::create_dir_all(&dir)?;
-        size += std::fs::copy(&exe, dir.join("WindowsStats.exe"))?;
-        for f in ["LICENSE.txt", "THIRD-PARTY-NOTICES.txt", "README.md"] {
-            if src.join(f).exists() {
-                size += std::fs::copy(src.join(f), dir.join(f))?;
+    let size = match copy_files(&exe, &dir) {
+        Ok(size) => size,
+        Err(e) => {
+            crate::log!("install failed: {e}");
+            if !quiet {
+                message(&tf("install.failed", &[("err", &e.to_string())]), MB_OK | MB_ICONWARNING);
             }
+            return;
         }
-        for d in ["sensors", "licenses"] {
-            if src.join(d).is_dir() {
-                size += copy_dir(&src.join(d), &dir.join(d))?;
-            }
-        }
-        Ok(())
-    })();
-    if let Err(e) = result {
-        crate::log!("install failed: {e}");
-        if !quiet {
-            message(&tf("install.failed", &[("err", &e.to_string())]), MB_OK | MB_ICONWARNING);
-        }
+    };
+    let installed = register(&dir, size);
+    crate::log!("installed to {}", dir.display());
+    // the autostart value points at the installed copy
+    if quiet {
+        // scripted: no questions, no autostart, not started
         return;
     }
+    if message(&t("install.autostart"), MB_YESNO | MB_ICONQUESTION) == IDYES {
+        crate::util::set_autostart_path(&installed, true);
+    }
+    let _ = std::process::Command::new(&installed).spawn();
+    message(&tf("install.done", &[("dir", &dir.display().to_string())]), MB_OK | MB_ICONINFORMATION);
+}
+
+/// `--update <pid>`: run by a downloaded and verified release from its temporary folder (see
+/// `update::download`). Waits for the running copy (`pid`) to exit, copies this release over
+/// the per-user installation and starts it. The settings, the autostart value and the Start
+/// menu entry stay as they are.
+pub fn update(pid: u32) {
+    let Ok(exe) = std::env::current_exe() else { return };
+    let dir = install_dir();
+    if exe.parent() == Some(dir.as_path()) {
+        return;
+    }
+    // the running copy closes once it hears from us (it stays if we never answer)
+    crate::update::signal_ready(pid);
+    wait_for_exit(pid, std::time::Duration::from_secs(20));
+    // the sensor helper leaves a moment after the app; retry while its files are still in use
+    let mut result = copy_files(&exe, &dir);
+    for _ in 0..30 {
+        if result.is_ok() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        result = copy_files(&exe, &dir);
+    }
+    match result {
+        Ok(size) => {
+            register(&dir, size);
+            crate::log!("updated to {} in {}", crate::about::VERSION, dir.display());
+        }
+        Err(e) => {
+            crate::log!("update failed: {e}");
+            message(&tf("update.install_failed", &[("err", &e.to_string())]), MB_OK | MB_ICONWARNING);
+        }
+    }
+    // start whatever is installed now: the new version, or the old one if copying failed
+    let _ = std::process::Command::new(dir.join("WindowsStats.exe")).spawn();
+}
+
+/// Wait up to `limit` for process `pid` to end (returns at once if it is already gone).
+fn wait_for_exit(pid: u32, limit: std::time::Duration) {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE};
+    unsafe {
+        if let Ok(h) = OpenProcess(PROCESS_SYNCHRONIZE, false, pid) {
+            let _ = WaitForSingleObject(h, limit.as_millis() as u32);
+            let _ = CloseHandle(h);
+        }
+    }
+}
+
+/// The Start menu shortcut and the Settings > Apps entry for the copy in `dir`.
+fn register(dir: &Path, size: u64) -> PathBuf {
     let installed = dir.join("WindowsStats.exe");
     if let Err(e) = create_shortcut(&installed, &shortcut_path()) {
         crate::log!("install: shortcut failed: {e}");
@@ -145,17 +215,7 @@ pub fn install(quiet: bool) {
     set_dword("NoModify", 1);
     set_dword("NoRepair", 1);
     set_dword("EstimatedSize", (size / 1024) as u32);
-    crate::log!("installed to {}", dir.display());
-    // the autostart value points at the installed copy
-    if quiet {
-        // scripted: no questions, no autostart, not started
-        return;
-    }
-    if message(&t("install.autostart"), MB_YESNO | MB_ICONQUESTION) == IDYES {
-        crate::util::set_autostart_path(&installed, true);
-    }
-    let _ = std::process::Command::new(&installed).spawn();
-    message(&tf("install.done", &[("dir", &dir.display().to_string())]), MB_OK | MB_ICONINFORMATION);
+    installed
 }
 
 pub fn uninstall(quiet: bool) {

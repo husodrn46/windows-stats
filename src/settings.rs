@@ -30,6 +30,10 @@ pub enum Effect {
     Open(String),
     /// pick the language from a menu at the pointer
     LanguageMenu,
+    /// ask GitHub for a newer release now
+    UpdateCheck,
+    /// download, verify and install the release found by the last check
+    UpdateInstall,
 }
 
 struct Hit {
@@ -161,7 +165,7 @@ impl Settings {
     }
 
     /// WM_PAINT: lay the page out with the current config and data, then copy it to the window.
-    pub fn paint(&mut self, base: &Theme, cfg: &Config, m: &MetricsData, autostart: bool) {
+    pub fn paint(&mut self, base: &Theme, cfg: &Config, m: &MetricsData, autostart: bool, update: &crate::update::State) {
         let mut rc = RECT::default();
         unsafe {
             let _ = GetClientRect(self.hwnd, &mut rc);
@@ -188,7 +192,7 @@ impl Settings {
             3 => page_sensors(&mut ui, cfg, m),
             4 => page_alerts(&mut ui, cfg, m),
             5 => page_privacy(&mut ui, cfg),
-            _ => page_about(&mut ui),
+            _ => page_about(&mut ui, update),
         }
         self.content_h = ui.y + self.scroll;
 
@@ -728,6 +732,9 @@ fn page_privacy(ui: &mut Ui, cfg: &Config) {
         let v = h.to_string();
         cfg_fx(move |c| c.ping_host = v.clone())
     }).collect());
+    let on = cfg.update_check == Some(true);
+    let r = ui.row(&t("update.auto"), &t("update.auto_desc"));
+    ui.toggle(r, on, cfg_fx(move |c| c.update_check = Some(!on)));
     ui.section(&t("settings.files"));
     let dir = crate::util::config_dir();
     ui.button(None, &t("settings.open_folder"), Effect::Open(dir.display().to_string()));
@@ -735,7 +742,7 @@ fn page_privacy(ui: &mut Ui, cfg: &Config) {
     ui.button(None, &t("settings.open_log"), Effect::Open(crate::util::log_path().display().to_string()));
 }
 
-fn page_about(ui: &mut Ui) {
+fn page_about(ui: &mut Ui, update: &crate::update::State) {
     ui.heading(&t("settings.page_about"));
     let f = ui.f(13.0, FW_NORMAL);
     for line in [tf_ver(), tf("about.based_on", &[("author", crate::about::UPSTREAM_AUTHOR)]), t("settings.inspired")] {
@@ -743,6 +750,8 @@ fn page_about(ui: &mut Ui) {
         ui.y += h + ui.t.s(4.0);
     }
     ui.y += ui.t.s(12.0);
+    update_section(ui, update);
+    ui.y += ui.t.s(8.0);
     let dir = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.to_path_buf()));
     let local = |name: &str| dir.as_ref().map(|d| d.join(name)).filter(|p| p.exists()).map(|p| p.display().to_string());
     ui.button(None, &t("about.license"), Effect::Open(local("LICENSE.txt").unwrap_or_else(|| crate::about::UPSTREAM_LICENSE_URL.to_string())));
@@ -751,6 +760,49 @@ fn page_about(ui: &mut Ui) {
     }
     ui.button(None, "github.com/mgvs/winstats", Effect::Open(crate::about::UPSTREAM_URL.to_string()));
     ui.button(None, "github.com/exelban/stats", Effect::Open("https://github.com/exelban/stats".to_string()));
+}
+
+/// Settings > About: the update status in a card, with the action that fits it.
+fn update_section(ui: &mut Ui, update: &crate::update::State) {
+    use crate::update::{Failure, State};
+    ui.section(&t("update.section"));
+    match update {
+        State::Idle => {
+            let r = ui.row(&t("update.idle"), &t("update.idle_desc"));
+            ui.button(Some(r), &t("update.check"), Effect::UpdateCheck);
+        }
+        State::Checking => {
+            ui.row(&t("update.checking"), "");
+        }
+        State::UpToDate => {
+            let r = ui.row(&t("update.up_to_date"), &tf("update.up_to_date_desc", &[("version", crate::about::VERSION)]));
+            ui.button(Some(r), &t("update.check"), Effect::UpdateCheck);
+        }
+        State::Available(rel) => {
+            let title = tf("update.available", &[("version", &rel.name)]);
+            if crate::update::can_install() {
+                let r = ui.row(&title, &t("update.available_desc"));
+                ui.button(Some(r), &tf("update.install", &[("version", &rel.name)]), Effect::UpdateInstall);
+            } else {
+                let r = ui.row(&title, &t("update.portable"));
+                ui.button(Some(r), &t("update.download_page"), Effect::Open(rel.page.clone()));
+            }
+            ui.button(None, &t("update.notes"), Effect::Open(rel.page.clone()));
+        }
+        State::Downloading(rel) => {
+            ui.row(&tf("update.downloading", &[("version", &rel.name)]), &t("update.downloading_desc"));
+        }
+        State::Failed(kind) => {
+            let key = match kind {
+                Failure::Network => "update.err_network",
+                Failure::Answer => "update.err_answer",
+                Failure::Verify => "update.err_verify",
+                Failure::Install => "update.err_install",
+            };
+            let r = ui.row(&t("update.failed"), &t(key));
+            ui.button(Some(r), &t("update.retry"), Effect::UpdateCheck);
+        }
+    }
 }
 
 fn page_sensors(ui: &mut Ui, cfg: &Config, m: &MetricsData) {

@@ -1,6 +1,6 @@
 [package]
 name = "windows-stats"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 rust-version = "1.85"
 description = "Windows Stats: system resource widgets for the Windows 10/11 taskbar (based on winstats)"
@@ -17,6 +17,8 @@ path = "src/main.rs"
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "0.9"
+# GitHub's release answer for the optional update check
+serde_json = "1"
 # the #[implement] macro (COM objects such as the DirectWrite text renderer) expands to windows_core paths
 windows-core = "=0.58.0"
 
@@ -61,6 +63,8 @@ features = [
     "Win32_System_Memory",
     "Win32_System_DataExchange",
     "Win32_Security",
+    "Win32_Security_Cryptography",
+    "Win32_Networking_WinHttp",
 ]
 
 [build-dependencies]

@@ -54,6 +54,10 @@ kullanılmamıştır (Swift/macOS; Windows Stats Rust/Win32).
 | toml | 0.9.12 | MIT OR Apache-2.0 |
 | toml_datetime, toml_parser, toml_writer, serde_spanned | 0.7 / 1.1 | MIT OR Apache-2.0 |
 | winnow | 0.7 / 1.0 | MIT |
+| serde_json | 1.0.154 | MIT OR Apache-2.0 |
+| itoa | 1.0.18 | MIT OR Apache-2.0 |
+| memchr | 2.8.3 | Unlicense OR MIT |
+| zmij | 1.0.23 | MIT |
 | windows, windows-core, windows-result, windows-strings, windows-implement, windows-interface | 0.58 / 0.2 / 0.1 | MIT OR Apache-2.0 |
 | windows-targets, windows_x86_64_gnu | 0.52.6 | MIT OR Apache-2.0 |
 | Rust standart kütüphanesi (std) | 1.99.0 | MIT OR Apache-2.0 |
