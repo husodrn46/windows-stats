@@ -65,7 +65,7 @@ bağdaştırıcı bilgileri ve sürücü etiketleri gizlendi; kapatılan alanlar
 
 **Gizlilik**
 
-![Gecikme ölçümünün kapalı olduğu gizlilik ayarları](docs/images/settings-5.png)
+![Gecikme ölçümünün ve güncelleme denetiminin kapalı olduğu gizlilik ayarları](docs/images/settings-5.png)
 
 **Hakkında**
 

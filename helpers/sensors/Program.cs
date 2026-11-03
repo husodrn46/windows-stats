@@ -28,7 +28,7 @@ using LibreHardwareMonitor.Hardware;
 
 static class Program
 {
-    const string Version = "0.1.4";
+    const string Version = "0.1.5";
 
     static int Main(string[] args)
     {
