@@ -144,6 +144,7 @@ fn run(rx: Receiver<Cmd>, latest: Arc<Mutex<Option<MetricsData>>>, posted: Arc<A
         }
     };
 
+    let mut accessories = crate::metrics::accessories::Monitor::default();
     let mut details = false;
     let mut suspended = false;
     // the optional sensor helper lives with the collectors (started again if it stops)
@@ -200,6 +201,9 @@ fn run(rx: Receiver<Cmd>, latest: Arc<Mutex<Option<MetricsData>>>, posted: Arc<A
             }
             Ok(Cmd::Suspend) => {
                 suspended = true;
+                accessories.invalidate();
+                metrics.data.accessory_batteries.clear();
+                publish(&metrics);
                 crate::log!("collector: suspended");
             }
             Ok(Cmd::Resume) => {
@@ -207,6 +211,7 @@ fn run(rx: Receiver<Cmd>, latest: Arc<Mutex<Option<MetricsData>>>, posted: Arc<A
                     // the deltas over the sleep would be meaningless: take a fresh baseline
                     // without publishing it, the next tick measures from here
                     suspended = false;
+                    accessories.invalidate();
                     metrics.update(false);
                     next = Instant::now() + interval(&settings);
                     crate::log!("collector: resumed");
@@ -216,6 +221,7 @@ fn run(rx: Receiver<Cmd>, latest: Arc<Mutex<Option<MetricsData>>>, posted: Arc<A
                 if !suspended {
                     let t0 = Instant::now();
                     metrics.update(details);
+                    metrics.data.accessory_batteries = accessories.tick();
                     helper.sync(settings.lhm, settings.interval_ms.max(2000));
                     match helper.host() {
                         Some(h) => {

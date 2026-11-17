@@ -316,3 +316,15 @@ ask = "Bu bilgisayarda yerel bir yapay zekâ modeli çalışıyor ({runtime}).\n
 peak_cpu = "CPU en çok {v}"
 ram = "RAM"
 seconds = "{n} sn"
+
+[accessories]
+title = "Aksesuar pilleri"
+description = "Windows’un pil yüzdesini bildirdiği Bluetooth cihazlar. Görev çubuğu için en fazla iki cihaz seç. USB alıcıları desteklenmez."
+empty = "Bağlı cihazlardan pil bilgisi alınamadı."
+configure = "Ayarlar > Widget’lar bölümünden cihaz seç."
+unavailable = "Sabitlenen cihaz {number} kullanılamıyor"
+retained = "Yeniden bağlantı için saklanıyor"
+limit = "İki cihaz seçili. Başkasını seçmek için birini kaldır."
+page = "Sayfa {current} / {total}"
+previous = "‹ Önceki cihazlar"
+next = "Sonraki cihazlar ›"

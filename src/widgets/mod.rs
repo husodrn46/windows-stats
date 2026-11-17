@@ -50,6 +50,7 @@ pub struct Theme {
     /// series shown in the network popup chart
     pub net_rx: bool,
     pub net_tx: bool,
+    pub accessory_pins: Vec<String>,
 }
 
 impl Theme {
@@ -707,6 +708,21 @@ impl Widget for DualChart {
 
 // ---------------------------------------------------------------- Battery
 
+/// Compact Unicode-safe labels; the full name remains in the Battery panel.
+fn accessory_label(name: &str) -> String {
+    let clean: String = name.chars().filter(|c| !c.is_control()).collect();
+    let clean = clean.trim();
+    if clean.is_empty() { return "BT".into(); }
+    if clean.chars().count() <= 9 { clean.to_owned() } else { format!("{}…", clean.chars().take(8).collect::<String>()) }
+}
+
+fn accessory_columns(t: &Theme, m: &MetricsData) -> Vec<(String, String, u8)> {
+    t.accessory_pins.iter().take(2).filter_map(|id| {
+        m.accessory_batteries.iter().find(|d| &d.id == id && d.level <= 100)
+            .map(|d| (d.id.clone(), accessory_label(&d.name), d.level))
+    }).collect()
+}
+
 pub struct BatteryWidget;
 
 impl Widget for BatteryWidget {
@@ -714,16 +730,36 @@ impl Widget for BatteryWidget {
         Kind::Battery
     }
     fn width(&self, c: &mut Canvas, t: &Theme, m: &MetricsData) -> i32 {
-        if m.battery.is_none() {
-            return 0;
-        }
         let f = t.font(9.5, FW_NORMAL);
-        c.measure_text("100%", f).0 + t.s(3.0) + t.s(22.0)
+        let system_w = if m.battery.is_some() { c.measure_text("100%", f).0 + t.s(25.0) } else { 0 };
+        if system_w == 0 && accessory_columns(t, m).is_empty() && !m.accessory_batteries.is_empty() {
+            return c.measure_text("BT", f).0 + t.s(8.0);
+        }
+        system_w + accessory_columns(t, m).iter().map(|(_, label, _)| {
+            c.measure_text(label, t.font(7.5, FW_NORMAL)).0.max(c.measure_text("100%", f).0) + t.s(8.0)
+        }).sum::<i32>()
     }
 
     fn draw(&self, c: &mut Canvas, x: i32, y: i32, t: &Theme, m: &MetricsData) {
-        let Some(b) = m.battery else { return };
         let f = t.font(9.5, FW_NORMAL);
+        if m.battery.is_none() && accessory_columns(t, m).is_empty() && !m.accessory_batteries.is_empty() {
+            let (_, h) = c.measure_text("BT", f);
+            c.draw_text("BT", x + t.s(4.0), y + (t.inner_h - h) / 2, f, t.dim);
+            return;
+        }
+        let mut ax = x + if m.battery.is_some() { c.measure_text("100%", f).0 + t.s(25.0) } else { 0 };
+        for (_, label, level) in accessory_columns(t, m) {
+            let lf = t.font(7.5, FW_NORMAL);
+            let value = format!("{level}%");
+            let (lw, lh) = c.measure_text(&label, lf);
+            let (vw, vh) = c.measure_text(&value, f);
+            let cw = lw.max(c.measure_text("100%", f).0);
+            let top = y + (t.inner_h - lh - vh) / 2;
+            c.draw_text(&label, ax + (cw - lw) / 2, top, lf, t.dim);
+            c.draw_text(&value, ax + (cw - vw) / 2, top + lh, f, if level <= 15 { RED } else { t.text });
+            ax += cw + t.s(8.0);
+        }
+        let Some(b) = m.battery else { return };
         let text = format!("{}%", (b.level * 100.0).round() as i32);
         let (tw, th) = c.measure_text(&text, f);
         c.draw_text(&text, x, y + (t.inner_h - th) / 2, f, t.text);
@@ -835,7 +871,31 @@ mod tests {
             modes: [ColorMode::Accent; 7],
             net_rx: true,
             net_tx: true,
+            accessory_pins: Vec::new(),
         }
+    }
+
+    #[test]
+    fn accessory_labels_are_compact_and_unicode_safe() {
+        assert_eq!(accessory_label("\n\t"), "BT");
+        assert_eq!(accessory_label("Mouse"), "Mouse");
+        assert_eq!(accessory_label("Çok uzun kulaklık"), "Çok uzun…");
+    }
+
+    #[test]
+    fn accessory_columns_preserve_pin_order_and_hide_missing_devices() {
+        let mut t = theme();
+        t.accessory_pins = vec!["b".into(), "missing".into(), "a".into()];
+        let mut m = MetricsData::default();
+        m.accessory_batteries = vec![
+            crate::metrics::accessories::AccessoryBattery { id: "a".into(), name: "Mouse".into(), level: 100 },
+            crate::metrics::accessories::AccessoryBattery { id: "b".into(), name: "Headset".into(), level: 0 },
+        ];
+        assert_eq!(accessory_columns(&t, &m), vec![("b".into(), "Headset".into(), 0)]);
+        t.accessory_pins = vec!["b".into(), "a".into()];
+        assert_eq!(accessory_columns(&t, &m).iter().map(|d| d.2).collect::<Vec<_>>(), vec![0, 100]);
+        m.accessory_batteries.clear();
+        assert!(accessory_columns(&t, &m).is_empty());
     }
 
     #[test]

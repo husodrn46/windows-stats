@@ -45,6 +45,8 @@ pub enum Action {
     ToggleNet(String),
     /// include / exclude a physical disk (by model)
     ToggleDisk(String),
+    /// Navigate the accessory list without persisting or changing device selection.
+    AccessoryPage(bool),
     /// pin a process row (its icon becomes a kill button); the index is the row in the list
     LockProc(usize, crate::metrics::processes::ProcInfo),
     /// terminate the process
@@ -87,6 +89,7 @@ pub struct Popup {
     pub hwnd: HWND,
     /// hovered pie slice, highlighted on the next render
     pub hover: Option<usize>,
+    accessory_page: usize,
     pie: Option<PieGeom>,
     /// truncated labels of the last render, in content coords
     tips: Vec<Tip>,
@@ -128,7 +131,7 @@ pub struct Popup {
     locked_h: i32,
     /// what the fixed height was computed for: row counts that change the layout (an adapter
     /// or a drive came or went); a change lets the height be recomputed
-    shape: Option<(Kind, usize, usize, usize)>,
+    shape: Option<(Kind, usize, usize, usize, usize)>,
     /// how the window background is drawn: DWM acrylic or the self-drawn layered card
     /// the best background this Windows offers (Layered when DWM refused)
     native: crate::backdrop::Mode,
@@ -238,6 +241,7 @@ impl Popup {
             light: false,
             locked_h: 0,
             shape: None,
+            accessory_page: 0,
         })
     }
 
@@ -336,6 +340,13 @@ impl Popup {
     }
 
     /// Something clickable under (x, y) in window coords.
+    pub fn change_accessory_page(&mut self, next: bool, device_count: usize) {
+        let pages = accessory_page_count(device_count);
+        self.accessory_page = if next { self.accessory_page.saturating_add(1).min(pages - 1) } else { self.accessory_page.saturating_sub(1) };
+        self.locked_h = 0;
+        self.mouse_leave();
+    }
+
     pub fn click_target(&self, x: i32, y: i32) -> bool {
         self.hit_at(x, y).is_some()
     }
@@ -508,7 +519,7 @@ impl Popup {
             }
         }
 
-        let shape = Some((kind, m.net_ifaces.len(), m.disks.len(), m.drives.len()));
+        let shape = Some((kind, m.net_ifaces.len(), m.disks.len(), m.drives.len(), m.accessory_batteries.len()));
         if shape != self.shape {
             self.shape = shape;
             self.locked_h = 0;
@@ -524,7 +535,10 @@ impl Popup {
             Kind::Gpu => draw_gpu(&mut ui, m),
             Kind::Net => draw_net(&mut ui, m),
             Kind::Disk => draw_disk(&mut ui, m),
-            Kind::Battery => draw_battery(&mut ui, m),
+            Kind::Battery => {
+                self.accessory_page = self.accessory_page.min(accessory_page_count(m.accessory_batteries.len()) - 1);
+                draw_battery(&mut ui, m, self.accessory_page);
+            },
             Kind::Sensors => draw_sensors(&mut ui, m),
         }
         // layout cursor, not painted pixels: reserved (empty) rows count too
@@ -1449,41 +1463,68 @@ fn draw_disk(ui: &mut Ui, m: &MetricsData) {
     }
 }
 
-fn draw_battery(ui: &mut Ui, m: &MetricsData) {
-    let Some(b) = m.battery else {
+const ACCESSORY_PAGE_SIZE: usize = 4;
+fn accessory_page_count(count: usize) -> usize { count.div_ceil(ACCESSORY_PAGE_SIZE).max(1) }
+
+fn draw_battery(ui: &mut Ui, m: &MetricsData, page: usize) {
+    if let Some(b) = m.battery {
+        let state = if b.charging {
+            t("popup.charging")
+        } else if b.on_ac {
+            t("popup.plugged_in")
+        } else {
+            t("popup.discharging")
+        };
+        ui.title(&t("popup.battery"), &state);
+        let col = if b.charging || b.on_ac {
+            GREEN
+        } else if b.level < 0.15 {
+            RED
+        } else if b.level < 0.3 {
+            YELLOW
+        } else {
+            ui.t.accent
+        };
+        ui.bar_row(&t("popup.level"), b.level, &pct(b.level), col);
+        if let Some(s) = b.remaining_secs {
+            ui.row(&t("popup.time_remaining"), &format_duration(s));
+        }
+        if let Some(d) = m.battery_detail {
+            ui.section(&t("popup.details"));
+            if d.rate_mw != 0 {
+                ui.row(&t("popup.power"), &format!("{:.1} W", d.rate_mw.abs() as f32 / 1000.0));
+            }
+            if d.max_mwh > 0 {
+                ui.row(&t("popup.capacity"), &format!("{:.1} / {:.1} Wh", d.remaining_mwh as f32 / 1000.0, d.max_mwh as f32 / 1000.0));
+            }
+        }
+    } else {
         ui.title(&t("popup.battery"), &t("popup.no_battery"));
-        return;
-    };
-    let state = if b.charging {
-        t("popup.charging")
-    } else if b.on_ac {
-        t("popup.plugged_in")
-    } else {
-        t("popup.discharging")
-    };
-    ui.title(&t("popup.battery"), &state);
-    let col = if b.charging || b.on_ac {
-        GREEN
-    } else if b.level < 0.15 {
-        RED
-    } else if b.level < 0.3 {
-        YELLOW
-    } else {
-        ui.t.accent
-    };
-    ui.bar_row(&t("popup.level"), b.level, &pct(b.level), col);
-    if let Some(s) = b.remaining_secs {
-        ui.row(&t("popup.time_remaining"), &format_duration(s));
     }
-    if let Some(d) = m.battery_detail {
-        ui.section(&t("popup.details"));
-        if d.rate_mw != 0 {
-            ui.row(&t("popup.power"), &format!("{:.1} W", d.rate_mw.abs() as f32 / 1000.0));
-        }
-        if d.max_mwh > 0 {
-            ui.row(&t("popup.capacity"), &format!("{:.1} / {:.1} Wh", d.remaining_mwh as f32 / 1000.0, d.max_mwh as f32 / 1000.0));
+    ui.section(&t("accessories.title"));
+    if m.accessory_batteries.is_empty() {
+        ui.row(&t("accessories.empty"), "");
+    } else {
+        for device in m.accessory_batteries.iter().skip(page * ACCESSORY_PAGE_SIZE).take(ACCESSORY_PAGE_SIZE) {
+            if device.level > 100 { continue; }
+            ui.bar_row(&device.name, device.level as f32 / 100.0, &format!("{}%", device.level), if device.level <= 15 { RED } else { ui.t.accent });
         }
     }
+    let pages = accessory_page_count(m.accessory_batteries.len());
+    if pages > 1 {
+        ui.row(&tf("accessories.page", &[("current", &(page + 1).to_string()), ("total", &pages.to_string())]), "");
+        if page > 0 {
+            let start = ui.y;
+            ui.row_colored(&t("accessories.previous"), "", ui.t.accent);
+            ui.clickable(start, Action::AccessoryPage(false));
+        }
+        if page + 1 < pages {
+            let start = ui.y;
+            ui.row_colored(&t("accessories.next"), "", ui.t.accent);
+            ui.clickable(start, Action::AccessoryPage(true));
+        }
+    }
+    ui.row(&t("accessories.configure"), "");
 }
 
 /// Unit and number format of a LibreHardwareMonitor sensor type; None for types this panel
@@ -1576,4 +1617,18 @@ fn wrap_words(ui: &mut Ui, text: &str) -> Vec<String> {
         lines.push(line);
     }
     lines
+}
+
+#[cfg(test)]
+mod accessory_pagination_tests {
+    use super::*;
+    #[test]
+    fn pages_cover_every_device_and_empty_list() {
+        for n in [0, 1, 4, 5, 8, 9, 100] {
+            let pages = accessory_page_count(n);
+            assert!(pages >= 1);
+            let visible = (0..pages).flat_map(|p| (0..n).skip(p * ACCESSORY_PAGE_SIZE).take(ACCESSORY_PAGE_SIZE)).collect::<Vec<_>>();
+            assert_eq!(visible, (0..n).collect::<Vec<_>>());
+        }
+    }
 }

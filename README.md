@@ -258,3 +258,7 @@ Windows Stats stands on the work of others. Thank you:
 
 MIT. Details and the third-party components used: [LICENSE](LICENSE),
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), `licenses\`.
+
+## Bluetooth aksesuar pilleri
+
+  * Bluetooth accessory batteries: the Battery panel lists supported connected devices; pin up to two in Settings > Widgets. Bluetooth only, Windows-reported percentages, no vendor software. See [scope and acceptance limits](docs/accessory-batteries.md).

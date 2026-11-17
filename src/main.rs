@@ -309,9 +309,6 @@ fn main() {
         if !metrics.gpu_available {
             cfg.widgets.retain(|w| widgets::CATALOG.iter().all(|(k, n, _)| *k != Kind::Gpu || *n != w));
         }
-        if !metrics.battery_available {
-            cfg.widgets.retain(|w| widgets::CATALOG.iter().all(|(k, n, _)| *k != Kind::Battery || *n != w));
-        }
         if cfg.widgets.len() != before {
             cfg.save();
         }
@@ -630,6 +627,7 @@ impl App {
             bar_w: widgets::bar_width_dip(&self.cfg.bar_width),
             net_rx: self.cfg.net_chart_rx,
             net_tx: self.cfg.net_chart_tx,
+            accessory_pins: self.cfg.accessory_pins.clone(),
             modes,
         }
     }
@@ -2123,7 +2121,7 @@ unsafe fn menu_submenu_ex(menu: HMENU, sub: HMENU, text: &str, enabled: bool) {
 /// Settings menu: one submenu per module with a checkable entry per widget type.
 unsafe fn build_menu(st: &MenuState) -> Option<HMENU> {
     let MenuState { cfg, hybrid, splittable, gpu_ok, battery_ok, dpi, vertical, .. } = st;
-    let (hybrid, splittable, gpu_ok, battery_ok, dpi, vertical) = (*hybrid, *splittable, *gpu_ok, *battery_ok, *dpi, *vertical);
+    let (hybrid, splittable, gpu_ok, _battery_ok, dpi, vertical) = (*hybrid, *splittable, *gpu_ok, *battery_ok, *dpi, *vertical);
     unsafe {
         let menu = CreatePopupMenu().ok()?;
         menu_item(menu, MENU_SETTINGS, &t("menu.settings"), false);
@@ -2158,7 +2156,7 @@ unsafe fn build_menu(st: &MenuState) -> Option<HMENU> {
             let enabled = widgets::CATALOG.iter().any(|(k, n, _)| k == kind && cfg.widgets.iter().any(|w| w == n));
             let available = match kind {
                 Kind::Gpu => gpu_ok,
-                Kind::Battery => battery_ok,
+                Kind::Battery => true,
                 _ => true,
             };
             let title = if !available {
@@ -2363,6 +2361,11 @@ impl App {
     /// A click on a toggling row in the popup: flip the item in the config, save, re-render.
     fn popup_action(&mut self, action: popup::Action) {
         match &action {
+            popup::Action::AccessoryPage(next) => {
+                self.popup.change_accessory_page(*next, self.metrics.accessory_batteries.len());
+                self.render_popup(false);
+                return;
+            }
             popup::Action::Copy(text) => {
                 if util::set_clipboard(text) {
                     self.popup.flash_copied(text);

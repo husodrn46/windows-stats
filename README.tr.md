@@ -243,3 +243,7 @@ Windows Stats başkalarının emeği üzerine kuruldu. Teşekkürler:
 
 MIT. Ayrıntılar ve kullanılan açık kaynak bileşenler: [LICENSE](LICENSE),
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), `licenses\`.
+
+## Bluetooth aksesuar pilleri
+
+  * Bluetooth aksesuar pilleri: Pil panelinde desteklenen bağlı cihazlar görünür; Ayarlar > Bileşenler bölümünden en fazla iki cihazı görev çubuğuna sabitleyin. Yalnızca Windows’un bildirdiği Bluetooth yüzdeleri kullanılır. [Kapsam ve doğrulama sınırları](docs/accessory-batteries.md).
