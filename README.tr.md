@@ -21,6 +21,9 @@ geliştirilmiştir.
 - **Ayarlar penceresi** (sağ tık > Ayarlar…): widget seçimi ve sıralaması, renkler, tema
   (sistem/koyu/açık), yazı ve grafik boyutları, güncelleme aralığı (0,5 / 1 / 2 / 5 sn), konum,
   Windows ile başlatma, eşik bildirimleri, sensörler, gizlilik.
+- **Bluetooth aksesuar pilleri**: Windows'un pil yüzdesini bildirdiği bağlı Bluetooth cihazlar Pil
+  panelinde görünür; Ayarlar > Widget'lar'dan en fazla ikisini şeride sabitleyebilirsiniz. Üretici
+  yazılımı ve USB alıcıları desteklenmez. [Kapsam ve sınırlar](docs/accessory-batteries.md).
 - **Bildirimler**: örneğin "İşlemci kullanımı 60 sn boyunca %90 üzerinde kalırsa uyar".
   Ölçülemeyen değerler hiçbir zaman bildirim üretmez.
 - **Yerel yapay zekâ oturumları** (isteğe bağlı, ilk seferde sorulur): Ollama, llama.cpp, KoboldCpp
@@ -243,7 +246,3 @@ Windows Stats başkalarının emeği üzerine kuruldu. Teşekkürler:
 
 MIT. Ayrıntılar ve kullanılan açık kaynak bileşenler: [LICENSE](LICENSE),
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), `licenses\`.
-
-## Bluetooth aksesuar pilleri
-
-  * Bluetooth aksesuar pilleri: Pil panelinde desteklenen bağlı cihazlar görünür; Ayarlar > Bileşenler bölümünden en fazla iki cihazı görev çubuğuna sabitleyin. Yalnızca Windows’un bildirdiği Bluetooth yüzdeleri kullanılır. [Kapsam ve doğrulama sınırları](docs/accessory-batteries.md).

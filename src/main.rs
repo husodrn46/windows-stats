@@ -309,6 +309,10 @@ fn main() {
         if !metrics.gpu_available {
             cfg.widgets.retain(|w| widgets::CATALOG.iter().all(|(k, n, _)| *k != Kind::Gpu || *n != w));
         }
+        // no system battery: pinning an accessory in Settings adds the Battery widget back
+        if !widgets::battery_available(&metrics, &cfg.accessory_pins) {
+            cfg.widgets.retain(|w| widgets::CATALOG.iter().all(|(k, n, _)| *k != Kind::Battery || *n != w));
+        }
         if cfg.widgets.len() != before {
             cfg.save();
         }
@@ -2121,7 +2125,7 @@ unsafe fn menu_submenu_ex(menu: HMENU, sub: HMENU, text: &str, enabled: bool) {
 /// Settings menu: one submenu per module with a checkable entry per widget type.
 unsafe fn build_menu(st: &MenuState) -> Option<HMENU> {
     let MenuState { cfg, hybrid, splittable, gpu_ok, battery_ok, dpi, vertical, .. } = st;
-    let (hybrid, splittable, gpu_ok, _battery_ok, dpi, vertical) = (*hybrid, *splittable, *gpu_ok, *battery_ok, *dpi, *vertical);
+    let (hybrid, splittable, gpu_ok, battery_ok, dpi, vertical) = (*hybrid, *splittable, *gpu_ok, *battery_ok, *dpi, *vertical);
     unsafe {
         let menu = CreatePopupMenu().ok()?;
         menu_item(menu, MENU_SETTINGS, &t("menu.settings"), false);
@@ -2156,7 +2160,7 @@ unsafe fn build_menu(st: &MenuState) -> Option<HMENU> {
             let enabled = widgets::CATALOG.iter().any(|(k, n, _)| k == kind && cfg.widgets.iter().any(|w| w == n));
             let available = match kind {
                 Kind::Gpu => gpu_ok,
-                Kind::Battery => true,
+                Kind::Battery => battery_ok,
                 _ => true,
             };
             let title = if !available {
@@ -2281,7 +2285,7 @@ fn menu_state() -> Option<MenuState> {
             hybrid: app.metrics.cpu_hybrid(),
             splittable: app.metrics.cpu_breaks().iter().any(|b| *b),
             gpu_ok: app.metrics.gpu_available,
-            battery_ok: app.metrics.battery_available,
+            battery_ok: widgets::battery_available(&app.metrics, &app.cfg.accessory_pins),
             dpi: app.taskbar.as_ref().map(|t| t.dpi()).or_else(|| util::dpi_for_window(app.hidden)).unwrap_or(96),
             vertical: app.taskbar.as_ref().map_or(false, |t| t.vertical()),
             anchor,

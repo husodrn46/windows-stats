@@ -1524,7 +1524,9 @@ fn draw_battery(ui: &mut Ui, m: &MetricsData, page: usize) {
             ui.clickable(start, Action::AccessoryPage(true));
         }
     }
-    ui.row(&t("accessories.configure"), "");
+    if ui.t.accessory_pins.is_empty() {
+        ui.row(&t("accessories.configure"), "");
+    }
 }
 
 /// Unit and number format of a LibreHardwareMonitor sensor type; None for types this panel

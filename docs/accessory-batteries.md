@@ -4,9 +4,9 @@ The Battery panel now lists connected Bluetooth accessories for which Windows ex
 valid battery percentage. Settings → Widgets → Accessory Batteries lets you pin up to two
 accessories alongside the existing system-battery readout. Pins survive disconnect/reconnect;
 remove an offline pin from that settings section to free a slot. No accessories are pinned
-by default. On desktop PCs, Battery remains available from the menu/settings without a
-laptop battery. A compact BT entry opens the panel when accessories are available but none are pinned;
-with no system battery or supported accessory, the strip consumes no battery-widget space.
+by default. On a desktop PC without a system battery, the Battery widget is offered once an
+accessory is pinned, and the first pin adds it to the strip. Until then nothing is drawn for
+accessories: connected but unpinned devices are listed only in Settings > Widgets.
 
 ## Limits and privacy
 
@@ -49,7 +49,8 @@ unit tests cover old config migration, persistence, two-pin limit, repeated togg
 Unicode labels. A cross-compile or test-executable build does not execute Windows tests.
 
 Before release, use a separate `WINDOWS_STATS_HOME` on Windows 10/11 and verify:
-1. Desktop with no system battery; Battery panel reachable, empty state readable.
+1. Desktop with no system battery: no Battery widget until a pin; Settings > Widgets lists the
+   accessories (empty state readable); the first pin adds the widget, removing the last pin leaves it empty.
 2. Laptop battery alone, with one accessory, then two pins; existing laptop display intact.
 3. Compare at least one classic and one LE device against Windows Bluetooth settings.
 4. A third device is still listed but cannot displace either pin; offline pins can be removed.

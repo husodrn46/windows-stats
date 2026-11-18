@@ -17,6 +17,9 @@ Inspired by [Stats](https://github.com/exelban/stats) for macOS and built on
 - **Settings window** (right click > Settings…): widgets and their order, colours, theme
   (system / dark / light), text and chart sizes, update interval (0.5 / 1 / 2 / 5 s), position,
   start with Windows, threshold notifications, sensors, privacy.
+- **Bluetooth accessory batteries**: the Battery panel lists connected Bluetooth devices whose
+  battery level Windows reports; pin up to two to the strip in Settings > Widgets. No vendor
+  software or USB receivers. See [scope and limits](docs/accessory-batteries.md).
 - **Notifications**, e.g. "warn when CPU usage stays above 90% for 60 seconds". Values
   the device cannot measure never raise a notification.
 - **Local AI sessions** (optional, asked the first time): while a model runs in Ollama, llama.cpp,
@@ -258,7 +261,3 @@ Windows Stats stands on the work of others. Thank you:
 
 MIT. Details and the third-party components used: [LICENSE](LICENSE),
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), `licenses\`.
-
-## Bluetooth aksesuar pilleri
-
-  * Bluetooth accessory batteries: the Battery panel lists supported connected devices; pin up to two in Settings > Widgets. Bluetooth only, Windows-reported percentages, no vendor software. See [scope and acceptance limits](docs/accessory-batteries.md).

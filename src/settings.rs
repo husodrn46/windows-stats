@@ -657,7 +657,7 @@ fn page_widgets(ui: &mut Ui, cfg: &Config, m: &MetricsData) {
         }
         let available = match kind {
             Kind::Gpu => m.gpu_available,
-            Kind::Battery => true,
+            Kind::Battery => crate::widgets::battery_available(m, &cfg.accessory_pins),
             _ => true,
         };
         let desc = if available { String::new() } else { t("popup.not_available") };

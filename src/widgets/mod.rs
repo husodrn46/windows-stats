@@ -716,6 +716,13 @@ fn accessory_label(name: &str) -> String {
     if clean.chars().count() <= 9 { clean.to_owned() } else { format!("{}…", clean.chars().take(8).collect::<String>()) }
 }
 
+/// The Battery widget has something to show, now or after a pinned accessory reconnects:
+/// a system battery or at least one pin. Unpinned accessories alone do not count; they are
+/// chosen in Settings > Widgets, and the first pin adds the widget.
+pub fn battery_available(m: &MetricsData, pins: &[String]) -> bool {
+    m.battery_available || !pins.is_empty()
+}
+
 fn accessory_columns(t: &Theme, m: &MetricsData) -> Vec<(String, String, u8)> {
     t.accessory_pins.iter().take(2).filter_map(|id| {
         m.accessory_batteries.iter().find(|d| &d.id == id && d.level <= 100)
@@ -731,10 +738,8 @@ impl Widget for BatteryWidget {
     }
     fn width(&self, c: &mut Canvas, t: &Theme, m: &MetricsData) -> i32 {
         let f = t.font(9.5, FW_NORMAL);
+        // Nothing is drawn for accessories until one is pinned and connected.
         let system_w = if m.battery.is_some() { c.measure_text("100%", f).0 + t.s(25.0) } else { 0 };
-        if system_w == 0 && accessory_columns(t, m).is_empty() && !m.accessory_batteries.is_empty() {
-            return c.measure_text("BT", f).0 + t.s(8.0);
-        }
         system_w + accessory_columns(t, m).iter().map(|(_, label, _)| {
             c.measure_text(label, t.font(7.5, FW_NORMAL)).0.max(c.measure_text("100%", f).0) + t.s(8.0)
         }).sum::<i32>()
@@ -742,11 +747,6 @@ impl Widget for BatteryWidget {
 
     fn draw(&self, c: &mut Canvas, x: i32, y: i32, t: &Theme, m: &MetricsData) {
         let f = t.font(9.5, FW_NORMAL);
-        if m.battery.is_none() && accessory_columns(t, m).is_empty() && !m.accessory_batteries.is_empty() {
-            let (_, h) = c.measure_text("BT", f);
-            c.draw_text("BT", x + t.s(4.0), y + (t.inner_h - h) / 2, f, t.dim);
-            return;
-        }
         let mut ax = x + if m.battery.is_some() { c.measure_text("100%", f).0 + t.s(25.0) } else { 0 };
         for (_, label, level) in accessory_columns(t, m) {
             let lf = t.font(7.5, FW_NORMAL);
@@ -880,6 +880,19 @@ mod tests {
         assert_eq!(accessory_label("\n\t"), "BT");
         assert_eq!(accessory_label("Mouse"), "Mouse");
         assert_eq!(accessory_label("Çok uzun kulaklık"), "Çok uzun…");
+    }
+
+    #[test]
+    fn battery_widget_is_offered_only_with_something_to_show() {
+        let mut m = MetricsData::default();
+        m.accessory_batteries = vec![crate::metrics::accessories::AccessoryBattery { id: "a".into(), name: "Mouse".into(), level: 80 }];
+        // desktop, accessory connected but not pinned: nothing to show on the strip yet
+        assert!(!battery_available(&m, &[]));
+        assert!(accessory_columns(&theme(), &m).is_empty());
+        // a pin keeps the widget useful even while the device is away
+        assert!(battery_available(&MetricsData::default(), &["a".into()]));
+        m.battery_available = true;
+        assert!(battery_available(&m, &[]));
     }
 
     #[test]
