@@ -696,7 +696,11 @@ fn page_alerts(ui: &mut Ui, cfg: &Config, m: &MetricsData) {
     ui.note(&t("settings.alerts_desc"));
     for (i, rule) in cfg.alerts.iter().enumerate() {
         let measured = rule.metric.value(m).is_some();
-        let cond = if rule.above { tf("settings.alert_above", &[("limit", &rule.metric.format(rule.threshold)), ("seconds", &rule.seconds.to_string())]) } else { tf("settings.alert_below", &[("limit", &rule.metric.format(rule.threshold))]) };
+        let cond = if rule.metric.is_capture() {
+            tf("settings.alert_capture", &[("limit", &rule.metric.format(rule.threshold))])
+        } else if rule.metric == Metric::MemGrowth {
+            tf("settings.alert_growth", &[("limit", &rule.metric.format(rule.threshold))])
+        } else if rule.above { tf("settings.alert_above", &[("limit", &rule.metric.format(rule.threshold)), ("seconds", &rule.seconds.to_string())]) } else { tf("settings.alert_below", &[("limit", &rule.metric.format(rule.threshold))]) };
         let desc = if measured { cond } else { format!("{cond} \u{00B7} {}", t("settings.not_measured")) };
         let second = ui.t.s(46.0);
         let full = ui.row_ex(&t(rule.metric.key()), &desc, ui.t.s(150.0), second);
@@ -709,8 +713,16 @@ fn page_alerts(ui: &mut Ui, cfg: &Config, m: &MetricsData) {
         let lw = ui.c.measure_text(&t("settings.limit"), lf);
         let lx = ui.x + ui.w - ui.t.s(16.0) - ui.t.s(136.0) - ui.t.s(10.0) - lw.0;
         ui.c.draw_text(&t("settings.limit"), lx, r.0 + (r.1 - lw.1) / 2, lf, ui.t.dim);
-        let step = 5.0;
-        let (lo, hi) = if rule.metric.is_temperature() { (30.0, 110.0) } else { (5.0, 100.0) };
+        let step = if rule.metric == Metric::MemGrowth { 0.5 } else { 5.0 };
+        let (lo, hi) = if rule.metric == Metric::MemGrowth {
+            (0.5, 8.0)
+        } else if rule.metric.is_capture() {
+            (5.0, 240.0)
+        } else if rule.metric.is_temperature() {
+            (30.0, 110.0)
+        } else {
+            (5.0, 100.0)
+        };
         let off = 0;
         ui.stepper(
             r,
@@ -719,7 +731,7 @@ fn page_alerts(ui: &mut Ui, cfg: &Config, m: &MetricsData) {
             cfg_fx(move |c| if let Some(x) = c.alerts.get_mut(i) { x.threshold = (x.threshold - step).max(lo) }),
             cfg_fx(move |c| if let Some(x) = c.alerts.get_mut(i) { x.threshold = (x.threshold + step).min(hi) }),
         );
-        if rule.above {
+        if rule.above && !rule.metric.own_duration() {
             let off2 = ui.t.s(190.0);
             let dw = ui.c.measure_text(&t("settings.duration"), lf);
             let dx = ui.x + ui.w - ui.t.s(16.0) - off2 - ui.t.s(136.0) - ui.t.s(10.0) - dw.0;

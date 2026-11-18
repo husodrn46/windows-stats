@@ -61,6 +61,9 @@ pub struct Entry {
     pub cpu_time: i64,
     /// private working set, bytes
     pub private: u64,
+    /// committed private memory (Task Manager's "commit size"), bytes: grows with a leak even
+    /// when Windows trims the working set
+    pub commit: u64,
 }
 
 /// Every process now (one NtQuerySystemInformation call into `buf`, grown as needed).
@@ -98,6 +101,7 @@ pub fn entries(buf: &mut Vec<u8>) -> Vec<Entry> {
                 name: String::from_utf16_lossy(s),
                 cpu_time: p.kernel_time + p.user_time,
                 private: p.working_set_private_size.max(0) as u64,
+                commit: p.private_page_count as u64,
             });
         }
         if p.next_entry_offset == 0 {
