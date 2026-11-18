@@ -192,6 +192,8 @@ gpu_temp = "GPU temperature"
 mem_usage = "Memory usage"
 disk_temp = "Disk temperature"
 battery_level = "Battery level"
+culprit = "Using the most: {name} ({value})"
+click_details = "Click for details and to end it."
 
 [settings]
 lhm_elevated = "Run the helper as administrator"

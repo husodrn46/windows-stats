@@ -51,6 +51,11 @@ impl Metric {
         }
     }
 
+    /// Load metrics a single program can cause: the card names the one using the most.
+    pub fn names_culprit(self) -> bool {
+        matches!(self, Metric::CpuLoad | Metric::MemUsage)
+    }
+
     pub fn is_temperature(self) -> bool {
         matches!(self, Metric::CpuTemp | Metric::GpuTemp | Metric::DiskTemp)
     }
@@ -157,11 +162,68 @@ impl Alerts {
     pub fn reset(&mut self) {
         self.states.clear();
     }
+
+    /// A CPU or memory rule is counting towards firing: the per-process list should be sampled
+    /// now, so the card can name the program when it fires. Off otherwise (no cost while idle).
+    pub fn wants_processes(&self, rules: &[Rule]) -> bool {
+        rules.iter().zip(self.states.iter()).any(|(r, st)| r.enabled && r.metric.names_culprit() && st.held > 0.0 && !st.fired)
+    }
+}
+
+/// The program using the most of `metric` right now: "Teams (71%)", "chrome.exe (2.1 GB)".
+/// None when the per-process list was not sampled or nothing stands out.
+pub fn culprit(metric: Metric, m: &MetricsData) -> Option<(String, String)> {
+    match metric {
+        Metric::CpuLoad => m.top_cpu.first().filter(|p| p.cpu >= 0.05).map(|p| (p.name.clone(), format!("{:.0}%", p.cpu * 100.0))),
+        Metric::MemUsage => m.top_mem.first().filter(|p| p.mem >= 64 * 1024 * 1024).map(|p| (p.name.clone(), crate::util::format_bytes(p.mem))),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn proc_info(name: &str, cpu: f32, mem: u64) -> crate::metrics::processes::ProcInfo {
+        crate::metrics::processes::ProcInfo { pid: 1, name: name.into(), cpu, mem, io: 0.0 }
+    }
+
+    #[test]
+    fn processes_are_sampled_only_while_a_load_rule_counts() {
+        let rules = vec![
+            Rule { enabled: true, metric: Metric::CpuLoad, above: true, threshold: 90.0, seconds: 3 },
+            Rule { enabled: true, metric: Metric::CpuTemp, above: true, threshold: 50.0, seconds: 3 },
+        ];
+        let mut a = Alerts::default();
+        let mut m = MetricsData { cpu_cores: vec![0.0], cpu_total: 0.2, cpu_temp: Some(80.0), ..Default::default() };
+        a.evaluate(&rules, &m, 1.0);
+        // a hot CPU alone does not need the process list
+        assert!(!a.wants_processes(&rules));
+        m.cpu_total = 0.95;
+        a.evaluate(&rules, &m, 1.0);
+        assert!(a.wants_processes(&rules));
+        a.evaluate(&rules, &m, 1.0);
+        let fired = a.evaluate(&rules, &m, 1.0);
+        assert!(fired.iter().any(|f| f.rule.metric == Metric::CpuLoad));
+        // fired: the card is shown, sampling stops until the load drops and rises again
+        assert!(!a.wants_processes(&rules));
+        let mut off = rules.clone();
+        off[0].enabled = false;
+        assert!(!a.wants_processes(&off));
+    }
+
+    #[test]
+    fn culprit_names_the_top_program_when_it_stands_out() {
+        let mut m = MetricsData::default();
+        assert_eq!(culprit(Metric::CpuLoad, &m), None);
+        m.top_cpu = vec![proc_info("Teams.exe", 0.712, 0)];
+        assert_eq!(culprit(Metric::CpuLoad, &m), Some(("Teams.exe".into(), "71%".into())));
+        m.top_cpu = vec![proc_info("idle.exe", 0.01, 0)];
+        assert_eq!(culprit(Metric::CpuLoad, &m), None);
+        m.top_mem = vec![proc_info("chrome.exe", 0.0, 3 * 1024 * 1024 * 1024)];
+        assert_eq!(culprit(Metric::MemUsage, &m).map(|c| c.0), Some("chrome.exe".into()));
+        assert_eq!(culprit(Metric::CpuTemp, &m), None);
+    }
 
     fn data(temp: Option<f32>) -> MetricsData {
         MetricsData { cpu_temp: temp, ..Default::default() }

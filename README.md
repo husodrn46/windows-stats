@@ -18,7 +18,8 @@ Inspired by [Stats](https://github.com/exelban/stats) for macOS and built on
   (system / dark / light), text and chart sizes, update interval (0.5 / 1 / 2 / 5 s), position,
   start with Windows, threshold notifications, sensors, privacy.
 - **Notifications**, e.g. "warn when CPU usage stays above 90% for 60 seconds". Values
-  the device cannot measure never raise a notification.
+  the device cannot measure never raise a notification. A CPU or memory warning names the
+  program using the most, and a click opens the matching panel, where it can be ended.
 - **Local AI sessions** (optional, asked the first time): while a model runs in Ollama, llama.cpp,
   KoboldCpp or LocalAI, Windows Stats notes the highest CPU, GPU, video memory, memory and
   temperatures, shows a summary when it ends and keeps the sessions in Settings > AI.

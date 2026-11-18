@@ -49,16 +49,18 @@ impl Toast {
         // word-wrap the body to the card width
         let max_w = w - pad * 2 - t.s(18.0);
         let mut lines: Vec<String> = Vec::new();
-        let mut line = String::new();
-        for word in body.split(' ') {
-            let cand = if line.is_empty() { word.to_string() } else { format!("{line} {word}") };
-            if line.is_empty() || self.canvas.measure_text(&cand, bf).0 <= max_w {
-                line = cand;
-            } else {
-                lines.push(std::mem::replace(&mut line, word.to_string()));
+        for paragraph in body.split('\n') {
+            let mut line = String::new();
+            for word in paragraph.split(' ') {
+                let cand = if line.is_empty() { word.to_string() } else { format!("{line} {word}") };
+                if line.is_empty() || self.canvas.measure_text(&cand, bf).0 <= max_w {
+                    line = cand;
+                } else {
+                    lines.push(std::mem::replace(&mut line, word.to_string()));
+                }
             }
+            lines.push(line);
         }
-        lines.push(line);
         let th = self.canvas.measure_text(title, tf).1;
         let lh = self.canvas.measure_text("X", bf).1;
         let h = pad * 2 + th + t.s(4.0) + lh * lines.len() as i32;

@@ -22,7 +22,8 @@ geliştirilmiştir.
   (sistem/koyu/açık), yazı ve grafik boyutları, güncelleme aralığı (0,5 / 1 / 2 / 5 sn), konum,
   Windows ile başlatma, eşik bildirimleri, sensörler, gizlilik.
 - **Bildirimler**: örneğin "İşlemci kullanımı 60 sn boyunca %90 üzerinde kalırsa uyar".
-  Ölçülemeyen değerler hiçbir zaman bildirim üretmez.
+  Ölçülemeyen değerler hiçbir zaman bildirim üretmez. İşlemci ve bellek uyarıları en çok kullanan
+  programın adını yazar; karta tıklayınca ilgili panel açılır, program oradan kapatılabilir.
 - **Yerel yapay zekâ oturumları** (isteğe bağlı, ilk seferde sorulur): Ollama, llama.cpp, KoboldCpp
   ya da LocalAI ile bir model çalışırken Windows Stats en yüksek işlemci, ekran kartı, video belleği,
   bellek ve sıcaklık değerlerini not eder, bitince özet gösterir ve oturumları Ayarlar > Yapay zekâ'da

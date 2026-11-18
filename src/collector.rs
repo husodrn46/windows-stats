@@ -57,6 +57,8 @@ pub enum Cmd {
     Details(bool),
     /// a popup just opened: fresh per-process baseline and a sample right away
     BeginDetails,
+    /// an alert rule is counting: sample the per-process lists so the card can name the program
+    WatchProcesses(bool),
     /// the network interfaces changed (cable, Wi-Fi, adapter): re-read them now
     RefreshNet,
     /// system suspend: stop sampling until `Resume`
@@ -188,6 +190,7 @@ fn run(rx: Receiver<Cmd>, latest: Arc<Mutex<Option<MetricsData>>>, posted: Arc<A
                 settings = s;
             }
             Ok(Cmd::Details(on)) => details = on,
+            Ok(Cmd::WatchProcesses(on)) => metrics.watch_processes(on, details),
             Ok(Cmd::BeginDetails) => {
                 details = true;
                 metrics.begin_details();
