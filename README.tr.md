@@ -36,6 +36,9 @@ geliştirilmiştir.
   bu bilgisayarın yükünü ve yapay zekâ oturumlarını salt okunur olarak okuyabilir; yerel modellerle de.
   Ayrıntılar: [docs/mcp.md](docs/mcp.md).
 - Tamamen **Türkçe** arayüz (Windows dili Türkçe ise otomatik), Türkçe birimler (KB/sn, 1,5 GB).
+- **32 dil**: Türkçe ve İngilizceye ek olarak winstats'tan gelen 27 dil ile Korece, Endonezce ve
+  Vietnamca. Windows'un görüntü dili kendiliğinden seçilir. Türkçe ve İngilizce dışındaki çeviriler
+  makine çevirisidir ve henüz anadili konuşan biri tarafından gözden geçirilmedi; düzeltmelere açığız.
 
 ## Ekran görüntüleri
 
@@ -74,15 +77,19 @@ bağdaştırıcı bilgileri ve sürücü etiketleri gizlendi; kapatılan alanlar
 
 **Bildirimler**
 
-![Bildirim ayarları](docs/images/settings-4.png)
+![Bildirim ayarları: mikrofon, kamera, bellek şişmesi ve boş disk alanı kuralları](docs/images/settings-4.png)
+
+**Yapay zekâ**
+
+![Yapay zekâ ayarları: henüz sorulmamış yerel yapay zekâ oturumları ve MCP kurulumu](docs/images/settings-5.png)
 
 **Gizlilik**
 
-![Gecikme ölçümünün ve güncelleme denetiminin kapalı olduğu gizlilik ayarları](docs/images/settings-5.png)
+![Gecikme ölçümünün ve güncelleme denetiminin kapalı olduğu gizlilik ayarları](docs/images/settings-6.png)
 
 **Hakkında**
 
-![Windows Stats hakkında](docs/images/settings-6.png)
+![Windows Stats hakkında](docs/images/settings-7.png)
 
 </details>
 

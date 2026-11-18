@@ -30,8 +30,10 @@ Inspired by [Stats](https://github.com/exelban/stats) for macOS and built on
 - **For AI apps (MCP):** LM Studio, Claude Desktop, VS Code and other MCP clients can read this
   computer's load and the AI sessions read-only, also with local models. See
   [docs/mcp.md](docs/mcp.md).
-- **Interface in English and Turkish** (plus 27 more languages from winstats, partly translated);
-  the Windows display language is picked automatically.
+- **Interface in 32 languages**: English and Turkish, the 27 languages inherited from winstats,
+  and Korean, Indonesian and Vietnamese. The Windows display language is picked automatically.
+  Except for English and Turkish, the translations are machine-made and not yet reviewed by native
+  speakers; corrections are welcome.
 
 ## Try Windows Stats
 
@@ -76,15 +78,19 @@ are redacted in the detail panels; the covered areas are marked `[gizlendi]` (hi
 
 **Notifications**
 
-![Notification settings](docs/images/settings-4.png)
+![Notification settings: the microphone, camera, memory growth and disk space rules](docs/images/settings-4.png)
+
+**AI**
+
+![AI settings: local AI sessions not asked yet, and the MCP setup](docs/images/settings-5.png)
 
 **Privacy**
 
-![Privacy settings: latency measurement and the update check, both off](docs/images/settings-5.png)
+![Privacy settings: latency measurement and the update check, both off](docs/images/settings-6.png)
 
 **About**
 
-![About Windows Stats](docs/images/settings-6.png)
+![About Windows Stats](docs/images/settings-7.png)
 
 </details>
 
