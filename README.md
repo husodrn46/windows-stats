@@ -149,9 +149,10 @@ as CPU temperatures may therefore be unavailable, even if you separately install
   measurement. It is off by default. While the network panel is open, it sends ICMP echo requests only to the address you
   choose. Hostnames may require a DNS lookup. It never falls back to TCP or probes adapter DNS
   servers or gateways; if ICMP is blocked, latency is unavailable.
-- **Microphone and camera warnings are off by default.** When switched on, Windows Stats reads, every
-  few seconds, the usage records Windows keeps for its own privacy page (which program uses the
-  microphone or camera, since when). Nothing is recorded, stored or sent.
+- **Microphone and camera warnings are off by default.** When switched on, Windows Stats looks, every
+  few seconds, at which programs have a recording stream open on a microphone (Windows' audio
+  sessions) and at the usage records Windows keeps for its own privacy page (which program uses the
+  camera, since when). It never listens: no sound or image is read, recorded, stored or sent.
 - **Local AI sessions are optional too.** The first time a model runs, Windows Stats asks whether
   to follow such sessions; Settings > AI changes the answer. To notice a model it looks at the
   names of running programs every three seconds, on this computer only. To show the model's name

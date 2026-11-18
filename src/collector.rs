@@ -158,12 +158,13 @@ fn run(rx: Receiver<Cmd>, latest: Arc<Mutex<Option<MetricsData>>>, posted: Arc<A
     let mut helper = crate::sensorhost::Supervisor::default();
     // local AI sessions: looks at the process list every few seconds
     let mut ai = crate::aiwatch::Watch::new(HWND(hwnd as *mut _));
-    // microphone / camera records: every few seconds, and only while a rule watches them
+    // microphone / camera: every few seconds, and only while a rule watches them
     let mut capture_buf = Vec::new();
     let mut capture_at = Instant::now();
+    let mut mic = crate::metrics::capture::MicWatch::default();
+    let started = Instant::now();
     // memory growth: a process sample every 10 minutes while the rule is on
     let mut growth = crate::metrics::growth::Growth::default();
-    let growth_start = Instant::now();
     let mut growth_at = Instant::now();
     helper.sync(settings.lhm, settings.interval_ms.max(2000));
     let interval = |s: &Settings| Duration::from_millis(s.interval_ms.clamp(250, 60_000) as u64);
@@ -259,14 +260,19 @@ fn run(rx: Receiver<Cmd>, latest: Arc<Mutex<Option<MetricsData>>>, posted: Arc<A
                     }
                     ai.tick(settings.ai_watch, &metrics.data, &settings.ai_processes);
                     metrics.data.ai_live = ai.current();
-                    if settings.capture && metrics.data.capture_supported {
+                    if settings.capture {
                         if Instant::now() >= capture_at {
                             capture_at = Instant::now() + Duration::from_secs(5);
                             let procs = crate::metrics::processes::entries(&mut capture_buf);
-                            metrics.data.mic_use = crate::metrics::capture::read(crate::metrics::capture::Device::Microphone, &procs);
-                            metrics.data.camera_use = crate::metrics::capture::read(crate::metrics::capture::Device::Camera, &procs);
+                            metrics.data.mic_use = mic.read(started.elapsed().as_secs(), &procs);
+                            metrics.data.camera_use = if metrics.data.camera_supported {
+                                crate::metrics::capture::read(crate::metrics::capture::Device::Camera, &procs)
+                            } else {
+                                Vec::new()
+                            };
                         }
-                    } else if !metrics.data.mic_use.is_empty() || !metrics.data.camera_use.is_empty() {
+                    } else {
+                        mic.clear();
                         metrics.data.mic_use.clear();
                         metrics.data.camera_use.clear();
                     }
@@ -274,7 +280,7 @@ fn run(rx: Receiver<Cmd>, latest: Arc<Mutex<Option<MetricsData>>>, posted: Arc<A
                         if Instant::now() >= growth_at {
                             growth_at = Instant::now() + Duration::from_secs(crate::metrics::growth::step_secs());
                             let procs = crate::metrics::processes::entries(&mut capture_buf);
-                            growth.observe(&procs, growth_start.elapsed().as_secs());
+                            growth.observe(&procs, started.elapsed().as_secs());
                             metrics.data.mem_growth = growth.worst();
                         }
                     } else if metrics.data.mem_growth.is_some() || growth_at > Instant::now() {

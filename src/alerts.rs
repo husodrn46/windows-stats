@@ -41,8 +41,8 @@ impl Metric {
             Metric::MemUsage => (m.mem.total > 0).then_some(m.mem.pct * 100.0),
             Metric::DiskTemp => m.disks.iter().filter_map(|d| d.temp_c).fold(None, |a: Option<f32>, t| Some(a.map_or(t, |a| a.max(t)))),
             Metric::BatteryLevel => m.battery.map(|b| b.level * 100.0),
-            Metric::MicInUse => m.capture_supported.then(|| m.mic_use.first().map_or(0.0, |u| u.secs as f32 / 60.0)),
-            Metric::CameraInUse => m.capture_supported.then(|| m.camera_use.first().map_or(0.0, |u| u.secs as f32 / 60.0)),
+            Metric::MicInUse => Some(m.mic_use.first().map_or(0.0, |u| u.secs as f32 / 60.0)),
+            Metric::CameraInUse => m.camera_supported.then(|| m.camera_use.first().map_or(0.0, |u| u.secs as f32 / 60.0)),
             Metric::MemGrowth => Some(m.mem_growth.as_ref().map_or(0.0, |g| g.grown as f32 / GIB)),
         }
     }
@@ -293,7 +293,7 @@ mod tests {
         use crate::metrics::capture::CaptureUse;
         let rules = vec![Rule { enabled: true, metric: Metric::MicInUse, above: true, threshold: 30.0, seconds: 0 }];
         let mut a = Alerts::default();
-        let mut m = MetricsData { capture_supported: true, ..Default::default() };
+        let mut m = MetricsData::default();
         assert_eq!(Metric::MicInUse.value(&m), Some(0.0));
         assert!(a.evaluate(&rules, &m, 1.0).is_empty());
         m.mic_use = vec![CaptureUse { app: "Zoom".into(), secs: 29 * 60 }];

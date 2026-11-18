@@ -142,9 +142,11 @@ yerine **"Bu cihazda kullanılamıyor"** olarak görünür.
   ölçümü de vardır. Varsayılan olarak kapalıdır ve ağ paneli açıkken yalnızca seçtiğiniz adrese ICMP gönderir. Ana bilgisayar adı girilirse DNS
   çözümlemesi gerekebilir. TCP'ye geçmez, bağdaştırıcı DNS sunucularını veya ağ geçitlerini
   alternatif hedef olarak yoklamaz. ICMP engellenirse gecikme ölçümü kullanılamaz.
-- **Mikrofon ve kamera uyarıları varsayılan olarak kapalıdır.** Açılırsa Windows Stats, Windows'un kendi
-  gizlilik sayfası için tuttuğu kullanım kayıtlarını (hangi program mikrofonu ya da kamerayı ne
-  zamandan beri kullanıyor) birkaç saniyede bir okur. Hiçbir şey kaydedilmez, saklanmaz, gönderilmez.
+- **Mikrofon ve kamera uyarıları varsayılan olarak kapalıdır.** Açılırsa Windows Stats birkaç saniyede
+  bir, hangi programın bir mikrofonda açık kayıt akışı olduğuna (Windows'un ses oturumları) ve
+  Windows'un kendi gizlilik sayfası için tuttuğu kullanım kayıtlarına (hangi program kamerayı ne
+  zamandan beri kullanıyor) bakar. Dinlemez: hiçbir ses ya da görüntü okunmaz, kaydedilmez,
+  saklanmaz, gönderilmez.
 - **Yerel yapay zekâ oturumları da isteğe bağlıdır.** Bir model ilk kez çalıştığında Windows Stats bu
   oturumları takip edip etmeyeceğini sorar; cevap Ayarlar > Yapay zekâ'dan değiştirilir. Modeli fark
   etmek için üç saniyede bir çalışan programların adlarına yalnızca bu bilgisayarda bakar. Model adını

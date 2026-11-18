@@ -91,8 +91,9 @@ pub struct MetricsData {
     pub gpu_available: bool,
     /// false on machines without a battery
     pub battery_available: bool,
-    /// Windows keeps the microphone / camera usage records (10 version 1903 and later)
-    pub capture_supported: bool,
+    /// Windows keeps the camera usage records (10 version 1903 and later); the microphone is
+    /// read from the audio sessions, available everywhere
+    pub camera_supported: bool,
     /// programs using the microphone / camera now, longest first; read only while an alert
     /// rule watches them (see `collector::Settings::capture`)
     pub mic_use: Vec<capture::CaptureUse>,
@@ -286,7 +287,7 @@ impl Metrics {
             top_n: top_n.max(1),
             gpu_available,
             battery_available,
-            capture_supported: capture::supported(),
+            camera_supported: capture::supported(),
             ..Default::default()
         };
         Self {
