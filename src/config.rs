@@ -90,6 +90,8 @@ pub struct Config {
     pub ai_watch: Option<bool>,
     /// More programs that run models, by executable name ("myrunner.exe").
     pub ai_processes: Vec<String>,
+    /// At most two local Bluetooth device IDs selected for the taskbar.
+    pub accessory_pins: Vec<String>,
 }
 
 impl Default for Config {
@@ -139,6 +141,7 @@ impl Default for Config {
             animations: true,
             ai_watch: None,
             ai_processes: Vec::new(),
+            accessory_pins: Vec::new(),
         }
     }
 }
@@ -203,6 +206,9 @@ impl Config {
         if !(0.5..=2.0).contains(&self.font_scale) {
             self.font_scale = 1.0;
         }
+        let mut seen = std::collections::HashSet::new();
+        self.accessory_pins.retain(|id| !id.is_empty() && seen.insert(id.clone()));
+        self.accessory_pins.truncate(2);
         self.font_family = self.font_family.trim().chars().take(64).collect();
         self.chart_width = self.chart_width.clamp(20, 200);
         self.top_processes = self.top_processes.clamp(1, 30);
@@ -229,6 +235,18 @@ impl Config {
         for preset in crate::alerts::default_rules() {
             if !self.alerts.iter().any(|r| r.metric == preset.metric) {
                 self.alerts.push(preset);
+            }
+        }
+    }
+
+    /// Toggle a pin without replacing another device when the two-slot limit is reached.
+    pub fn toggle_accessory_pin(&mut self, id: &str) {
+        if self.accessory_pins.iter().any(|p| p == id) {
+            self.accessory_pins.retain(|p| p != id);
+        } else if !id.is_empty() && self.accessory_pins.len() < 2 {
+            self.accessory_pins.push(id.to_owned());
+            if !self.widgets.iter().any(|w| w == "battery") {
+                self.widgets.push("battery".into());
             }
         }
     }
@@ -268,6 +286,29 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accessory_pins_migrate_and_sanitize() {
+        assert!(Config::parse("labels = true").unwrap().accessory_pins.is_empty());
+        let c = Config::parse("accessory_pins = ['a', '', 'a', 'b', 'c']").unwrap();
+        assert_eq!(c.accessory_pins, vec!["a", "b"]);
+        assert_eq!(Config::parse(&c.to_document().unwrap()).unwrap(), c);
+    }
+
+    #[test]
+    fn pin_limit_and_repeated_toggle() {
+        let mut c = Config::default();
+        c.widgets.clear();
+        for id in ["a", "b", "c"] { c.toggle_accessory_pin(id); }
+        assert_eq!(c.accessory_pins, vec!["a", "b"]);
+        assert_eq!(c.widgets, vec!["battery"]);
+        c.toggle_accessory_pin("a");
+        c.toggle_accessory_pin("c");
+        assert_eq!(c.accessory_pins, vec!["b", "c"]);
+        c.toggle_accessory_pin("c");
+        c.toggle_accessory_pin("c");
+        assert_eq!(c.accessory_pins, vec!["b", "c"]);
+    }
 
     #[test]
     fn older_files_get_new_alert_presets_switched_off() {

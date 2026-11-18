@@ -329,3 +329,15 @@ ask = "A local AI model is running ({runtime}).\n\nShould Windows Stats follow s
 peak_cpu = "CPU up to {v}"
 ram = "RAM"
 seconds = "{n} s"
+
+[accessories]
+title = "Accessory batteries"
+description = "Bluetooth devices whose battery level Windows reports. Select up to two for the taskbar. USB receivers are not supported."
+empty = "No connected device reports a battery level."
+configure = "Choose devices in Settings > Widgets."
+unavailable = "Unavailable pinned device {number}"
+retained = "Kept for reconnect"
+limit = "Two devices selected. Unpin one to choose another."
+page = "Page {current} / {total}"
+previous = "‹ Previous devices"
+next = "Next devices ›"

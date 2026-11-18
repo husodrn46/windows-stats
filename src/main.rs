@@ -316,7 +316,8 @@ fn main() {
         if !metrics.gpu_available {
             cfg.widgets.retain(|w| widgets::CATALOG.iter().all(|(k, n, _)| *k != Kind::Gpu || *n != w));
         }
-        if !metrics.battery_available {
+        // no system battery: pinning an accessory in Settings adds the Battery widget back
+        if !widgets::battery_available(&metrics, &cfg.accessory_pins) {
             cfg.widgets.retain(|w| widgets::CATALOG.iter().all(|(k, n, _)| *k != Kind::Battery || *n != w));
         }
         if cfg.widgets.len() != before {
@@ -640,6 +641,7 @@ impl App {
             bar_w: widgets::bar_width_dip(&self.cfg.bar_width),
             net_rx: self.cfg.net_chart_rx,
             net_tx: self.cfg.net_chart_tx,
+            accessory_pins: self.cfg.accessory_pins.clone(),
             modes,
         }
     }
@@ -2352,7 +2354,7 @@ fn menu_state() -> Option<MenuState> {
             hybrid: app.metrics.cpu_hybrid(),
             splittable: app.metrics.cpu_breaks().iter().any(|b| *b),
             gpu_ok: app.metrics.gpu_available,
-            battery_ok: app.metrics.battery_available,
+            battery_ok: widgets::battery_available(&app.metrics, &app.cfg.accessory_pins),
             dpi: app.taskbar.as_ref().map(|t| t.dpi()).or_else(|| util::dpi_for_window(app.hidden)).unwrap_or(96),
             vertical: app.taskbar.as_ref().map_or(false, |t| t.vertical()),
             anchor,
@@ -2432,6 +2434,11 @@ impl App {
     /// A click on a toggling row in the popup: flip the item in the config, save, re-render.
     fn popup_action(&mut self, action: popup::Action) {
         match &action {
+            popup::Action::AccessoryPage(next) => {
+                self.popup.change_accessory_page(*next, self.metrics.accessory_batteries.len());
+                self.render_popup(false);
+                return;
+            }
             popup::Action::Copy(text) => {
                 if util::set_clipboard(text) {
                     self.popup.flash_copied(text);

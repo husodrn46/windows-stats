@@ -341,7 +341,7 @@ impl Ui<'_> {
         self.c.stroke_round_rect_r(self.x, self.y, self.w, h, r, self.pal.card_border);
         let text_h = th + dh * dlines.len() as i32;
         let mut ty = if extra_h > 0 { self.y + pad } else { self.y + (h - text_h) / 2 };
-        self.c.draw_text(title, self.x + pad, ty, tf, self.t.text);
+        self.c.draw_text_clipped(title, self.x + pad, ty, text_w, tf, self.t.text);
         ty += th;
         for l in &dlines {
             self.c.draw_text(l, self.x + pad, ty, df, self.t.dim);
@@ -657,7 +657,7 @@ fn page_widgets(ui: &mut Ui, cfg: &Config, m: &MetricsData) {
         }
         let available = match kind {
             Kind::Gpu => m.gpu_available,
-            Kind::Battery => m.battery_available,
+            Kind::Battery => crate::widgets::battery_available(m, &cfg.accessory_pins),
             _ => true,
         };
         let desc = if available { String::new() } else { t("popup.not_available") };
@@ -666,6 +666,30 @@ fn page_widgets(ui: &mut Ui, cfg: &Config, m: &MetricsData) {
             let nm = name.to_string();
             ui.button(Some(r), &t("settings.add"), cfg_fx(move |c| crate::widgets::toggle_widget(&mut c.widgets, &nm)));
         }
+    }
+    ui.section(&t("accessories.title"));
+    ui.note(&t("accessories.description"));
+    if m.accessory_batteries.is_empty() {
+        ui.note(&t("accessories.empty"));
+    }
+    for device in &m.accessory_batteries {
+        let pinned = cfg.accessory_pins.iter().any(|p| p == &device.id);
+        let r = ui.row(&device.name, &format!("{}%", device.level));
+        if pinned || cfg.accessory_pins.len() < 2 {
+            let id = device.id.clone();
+            ui.toggle(r, pinned, cfg_fx(move |c| c.toggle_accessory_pin(&id)));
+        }
+    }
+    // Retain disconnected selections for reconnect, but allow removing them without the device.
+    for (index, id) in cfg.accessory_pins.iter().enumerate() {
+        if !m.accessory_batteries.iter().any(|d| &d.id == id) {
+            let r = ui.row(&tf("accessories.unavailable", &[("number", &(index + 1).to_string())]), &t("accessories.retained"));
+            let id = id.clone();
+            ui.toggle(r, true, cfg_fx(move |c| c.toggle_accessory_pin(&id)));
+        }
+    }
+    if cfg.accessory_pins.len() >= 2 {
+        ui.note(&t("accessories.limit"));
     }
     ui.section(&t("menu.colour"));
     for k in crate::widgets::MODULES {

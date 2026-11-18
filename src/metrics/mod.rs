@@ -1,4 +1,5 @@
 pub mod battery;
+pub mod accessories;
 pub mod capture;
 pub mod growth;
 pub mod cpu;
@@ -76,6 +77,7 @@ pub struct MetricsData {
     pub vram_used: u64,
     pub vram_budget: u64,
     pub vram_total: u64,
+    pub accessory_batteries: Vec<accessories::AccessoryBattery>,
     pub battery: Option<battery::Battery>,
     pub battery_detail: Option<battery::BatteryDetail>,
     pub top_cpu: Vec<processes::ProcInfo>,
