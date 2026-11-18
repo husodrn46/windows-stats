@@ -20,8 +20,10 @@ pub const LOCALES: &[(&str, &str, &str)] = &[
     ("fr", "Français", include_str!("../locales/fr.toml")),
     ("fr-CA", "Français (Canada)", include_str!("../locales/fr-CA.toml")),
     ("hu", "Magyar", include_str!("../locales/hu.toml")),
+    ("id", "Bahasa Indonesia", include_str!("../locales/id.toml")),
     ("it", "Italiano", include_str!("../locales/it.toml")),
     ("ja", "日本語", include_str!("../locales/ja.toml")),
+    ("ko", "한국어", include_str!("../locales/ko.toml")),
     ("lt", "Lietuvių", include_str!("../locales/lt.toml")),
     ("lv", "Latviešu", include_str!("../locales/lv.toml")),
     ("nb", "Norsk bokmål", include_str!("../locales/nb.toml")),
@@ -34,6 +36,7 @@ pub const LOCALES: &[(&str, &str, &str)] = &[
     ("sv", "Svenska", include_str!("../locales/sv.toml")),
     ("tr", "Türkçe", include_str!("../locales/tr.toml")),
     ("uk", "Українська", include_str!("../locales/uk.toml")),
+    ("vi", "Tiếng Việt", include_str!("../locales/vi.toml")),
     ("zh", "简体中文", include_str!("../locales/zh.toml")),
     ("zh-Hant", "繁體中文", include_str!("../locales/zh-Hant.toml")),
 ];
@@ -99,8 +102,10 @@ pub fn detect() -> &'static str {
         0x0A => "es",
         0x25 => "et",
         0x0E => "hu",
+        0x21 => "id",
         0x10 => "it",
         0x11 => "ja",
+        0x12 => "ko",
         0x27 => "lt",
         0x26 => "lv",
         0x14 => "nb",
@@ -113,6 +118,7 @@ pub fn detect() -> &'static str {
         0x1D => "sv",
         0x1F => "tr",
         0x22 => "uk",
+        0x2A => "vi",
         _ => "en",
     }
 }
@@ -136,9 +142,9 @@ pub fn current() -> String {
 }
 
 /// True when the active language writes decimals with a comma ("0,5" in Turkish, German,
-/// French...), false for a point (English, Japanese, Chinese).
+/// French...), false for a point (English, Japanese, Korean, Chinese).
 pub fn decimal_comma() -> bool {
-    !matches!(current().as_str(), "en" | "en-GB" | "ja" | "zh" | "zh-Hant")
+    !matches!(current().as_str(), "en" | "en-GB" | "ja" | "ko" | "zh" | "zh-Hant")
 }
 
 /// Translated string for `key`, English if the locale lacks it, the key itself if nobody has it.
