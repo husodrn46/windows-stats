@@ -20,10 +20,16 @@ pub enum Metric {
     MemUsage,
     DiskTemp,
     BatteryLevel,
+    /// minutes the microphone has been in use by one program
+    MicInUse,
+    /// minutes the camera has been in use by one program
+    CameraInUse,
+    /// GB one program's memory grew by, steadily, over the last hours (a leak)
+    MemGrowth,
 }
 
 impl Metric {
-    pub const ALL: &'static [Metric] = &[Metric::CpuLoad, Metric::CpuTemp, Metric::GpuLoad, Metric::GpuTemp, Metric::MemUsage, Metric::DiskTemp, Metric::BatteryLevel];
+    pub const ALL: &'static [Metric] = &[Metric::CpuLoad, Metric::CpuTemp, Metric::GpuLoad, Metric::GpuTemp, Metric::MemUsage, Metric::DiskTemp, Metric::BatteryLevel, Metric::MicInUse, Metric::CameraInUse, Metric::MemGrowth];
 
     /// Current value, or None when this machine does not measure it.
     pub fn value(self, m: &MetricsData) -> Option<f32> {
@@ -35,6 +41,9 @@ impl Metric {
             Metric::MemUsage => (m.mem.total > 0).then_some(m.mem.pct * 100.0),
             Metric::DiskTemp => m.disks.iter().filter_map(|d| d.temp_c).fold(None, |a: Option<f32>, t| Some(a.map_or(t, |a| a.max(t)))),
             Metric::BatteryLevel => m.battery.map(|b| b.level * 100.0),
+            Metric::MicInUse => Some(m.mic_use.first().map_or(0.0, |u| u.secs as f32 / 60.0)),
+            Metric::CameraInUse => m.camera_supported.then(|| m.camera_use.first().map_or(0.0, |u| u.secs as f32 / 60.0)),
+            Metric::MemGrowth => Some(m.mem_growth.as_ref().map_or(0.0, |g| g.grown as f32 / GIB)),
         }
     }
 
@@ -48,16 +57,49 @@ impl Metric {
             Metric::MemUsage => "alerts.mem_usage",
             Metric::DiskTemp => "alerts.disk_temp",
             Metric::BatteryLevel => "alerts.battery_level",
+            Metric::MicInUse => "alerts.mic_in_use",
+            Metric::CameraInUse => "alerts.camera_in_use",
+            Metric::MemGrowth => "alerts.mem_growth",
         }
+    }
+
+    /// The value already measures a span of time (minutes in use, growth over hours): the rule
+    /// fires as soon as it passes the limit, with no extra duration to set.
+    pub fn own_duration(self) -> bool {
+        self.is_capture() || self == Metric::MemGrowth
+    }
+
+    /// Microphone / camera: the value is how long one program has been using the device, in
+    /// minutes; the rule fires as soon as that passes the limit (no extra duration).
+    pub fn is_capture(self) -> bool {
+        matches!(self, Metric::MicInUse | Metric::CameraInUse)
+    }
+
+    /// The Windows privacy page a click on the card opens.
+    pub fn privacy_page(self) -> Option<&'static str> {
+        match self {
+            Metric::MicInUse => Some("ms-settings:privacy-microphone"),
+            Metric::CameraInUse => Some("ms-settings:privacy-webcam"),
+            _ => None,
+        }
+    }
+
+    /// Load metrics a single program can cause: the card names the one using the most.
+    pub fn names_culprit(self) -> bool {
+        matches!(self, Metric::CpuLoad | Metric::MemUsage)
     }
 
     pub fn is_temperature(self) -> bool {
         matches!(self, Metric::CpuTemp | Metric::GpuTemp | Metric::DiskTemp)
     }
 
-    /// "85 °C", "90%"
+    /// "85 °C", "90%", "30 min"
     pub fn format(self, v: f32) -> String {
-        if self.is_temperature() {
+        if self.is_capture() {
+            crate::i18n::tf("alerts.minutes", &[("n", &format!("{v:.0}"))])
+        } else if self == Metric::MemGrowth {
+            format!("{} GB", crate::util::format_decimal(v as f64, 1))
+        } else if self.is_temperature() {
             format!("{v:.0} \u{00B0}C")
         } else {
             format!("{v:.0}%")
@@ -93,12 +135,23 @@ pub fn default_rules() -> Vec<Rule> {
         Rule { enabled: false, metric: Metric::MemUsage, above: true, threshold: 90.0, seconds: 60 },
         Rule { enabled: false, metric: Metric::DiskTemp, above: true, threshold: 60.0, seconds: 60 },
         Rule { enabled: false, metric: Metric::BatteryLevel, above: false, threshold: 15.0, seconds: 10 },
+        Rule { enabled: false, metric: Metric::MicInUse, above: true, threshold: 30.0, seconds: 0 },
+        Rule { enabled: false, metric: Metric::CameraInUse, above: true, threshold: 30.0, seconds: 0 },
+        Rule { enabled: false, metric: Metric::MemGrowth, above: true, threshold: 1.0, seconds: 0 },
     ]
 }
 
+const GIB: f32 = 1024.0 * 1024.0 * 1024.0;
+
 /// Margin the value has to come back by before a fired rule can fire again.
 fn hysteresis(rule: &Rule) -> f32 {
-    if rule.metric.is_temperature() { 3.0 } else { 5.0 }
+    if rule.metric == Metric::MemGrowth {
+        0.25
+    } else if rule.metric.is_temperature() {
+        3.0
+    } else {
+        5.0
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -157,11 +210,121 @@ impl Alerts {
     pub fn reset(&mut self) {
         self.states.clear();
     }
+
+    /// A CPU or memory rule is counting towards firing: the per-process list should be sampled
+    /// now, so the card can name the program when it fires. Off otherwise (no cost while idle).
+    pub fn wants_processes(&self, rules: &[Rule]) -> bool {
+        rules.iter().zip(self.states.iter()).any(|(r, st)| r.enabled && r.metric.names_culprit() && st.held > 0.0 && !st.fired)
+    }
+}
+
+/// The program using the most of `metric` right now: "Teams (71%)", "chrome.exe (2.1 GB)".
+/// None when the per-process list was not sampled or nothing stands out.
+pub fn culprit(metric: Metric, m: &MetricsData) -> Option<(String, String)> {
+    match metric {
+        Metric::CpuLoad => m.top_cpu.first().filter(|p| p.cpu >= 0.05).map(|p| (p.name.clone(), format!("{:.0}%", p.cpu * 100.0))),
+        Metric::MemUsage => m.top_mem.first().filter(|p| p.mem >= 64 * 1024 * 1024).map(|p| (p.name.clone(), crate::util::format_bytes(p.mem))),
+        Metric::MicInUse | Metric::CameraInUse => {
+            let list = if metric == Metric::MicInUse { &m.mic_use } else { &m.camera_use };
+            let first = list.first()?;
+            let names: Vec<&str> = list.iter().take(3).map(|u| u.app.as_str()).collect();
+            Some((names.join(", "), format!("{}", first.secs / 60)))
+        }
+        _ => None,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn proc_info(name: &str, cpu: f32, mem: u64) -> crate::metrics::processes::ProcInfo {
+        crate::metrics::processes::ProcInfo { pid: 1, name: name.into(), cpu, mem, io: 0.0 }
+    }
+
+    #[test]
+    fn processes_are_sampled_only_while_a_load_rule_counts() {
+        let rules = vec![
+            Rule { enabled: true, metric: Metric::CpuLoad, above: true, threshold: 90.0, seconds: 3 },
+            Rule { enabled: true, metric: Metric::CpuTemp, above: true, threshold: 50.0, seconds: 3 },
+        ];
+        let mut a = Alerts::default();
+        let mut m = MetricsData { cpu_cores: vec![0.0], cpu_total: 0.2, cpu_temp: Some(80.0), ..Default::default() };
+        a.evaluate(&rules, &m, 1.0);
+        // a hot CPU alone does not need the process list
+        assert!(!a.wants_processes(&rules));
+        m.cpu_total = 0.95;
+        a.evaluate(&rules, &m, 1.0);
+        assert!(a.wants_processes(&rules));
+        a.evaluate(&rules, &m, 1.0);
+        let fired = a.evaluate(&rules, &m, 1.0);
+        assert!(fired.iter().any(|f| f.rule.metric == Metric::CpuLoad));
+        // fired: the card is shown, sampling stops until the load drops and rises again
+        assert!(!a.wants_processes(&rules));
+        let mut off = rules.clone();
+        off[0].enabled = false;
+        assert!(!a.wants_processes(&off));
+    }
+
+    #[test]
+    fn memory_growth_fires_once_per_leak() {
+        use crate::metrics::growth::Grower;
+        let rules = vec![Rule { enabled: true, metric: Metric::MemGrowth, above: true, threshold: 1.0, seconds: 0 }];
+        let mut a = Alerts::default();
+        let mut m = MetricsData::default();
+        assert_eq!(Metric::MemGrowth.value(&m), Some(0.0));
+        let g = |gb: f32| Grower { pid: 7, name: "leaky.exe".into(), grown: (gb * GIB) as u64, now: 3 * GIB as u64, secs: 7200 };
+        m.mem_growth = Some(g(0.8));
+        assert!(a.evaluate(&rules, &m, 1.0).is_empty());
+        m.mem_growth = Some(g(1.2));
+        assert_eq!(a.evaluate(&rules, &m, 1.0).len(), 1);
+        // still growing: one card, not one per sample
+        m.mem_growth = Some(g(1.6));
+        assert!(a.evaluate(&rules, &m, 1.0).is_empty());
+        // gave the memory back, leaked again later: a new card
+        m.mem_growth = None;
+        a.evaluate(&rules, &m, 1.0);
+        m.mem_growth = Some(g(1.1));
+        assert_eq!(a.evaluate(&rules, &m, 1.0).len(), 1);
+    }
+
+    #[test]
+    fn microphone_rule_fires_once_per_long_use() {
+        use crate::metrics::capture::CaptureUse;
+        let rules = vec![Rule { enabled: true, metric: Metric::MicInUse, above: true, threshold: 30.0, seconds: 0 }];
+        let mut a = Alerts::default();
+        let mut m = MetricsData::default();
+        assert_eq!(Metric::MicInUse.value(&m), Some(0.0));
+        assert!(a.evaluate(&rules, &m, 1.0).is_empty());
+        m.mic_use = vec![CaptureUse { app: "Zoom".into(), secs: 29 * 60 }];
+        assert!(a.evaluate(&rules, &m, 1.0).is_empty());
+        m.mic_use = vec![CaptureUse { app: "Zoom".into(), secs: 31 * 60 }, CaptureUse { app: "Discord".into(), secs: 60 }];
+        assert_eq!(a.evaluate(&rules, &m, 1.0).len(), 1);
+        assert_eq!(culprit(Metric::MicInUse, &m), Some(("Zoom, Discord".into(), "31".into())));
+        // still in use: no second card
+        m.mic_use[0].secs = 50 * 60;
+        assert!(a.evaluate(&rules, &m, 1.0).is_empty());
+        // released and used again for long: a new card
+        m.mic_use.clear();
+        a.evaluate(&rules, &m, 1.0);
+        m.mic_use = vec![CaptureUse { app: "Zoom".into(), secs: 40 * 60 }];
+        assert_eq!(a.evaluate(&rules, &m, 1.0).len(), 1);
+        // no records on this Windows: never measured, never fires
+        assert_eq!(Metric::CameraInUse.value(&MetricsData::default()), None);
+    }
+
+    #[test]
+    fn culprit_names_the_top_program_when_it_stands_out() {
+        let mut m = MetricsData::default();
+        assert_eq!(culprit(Metric::CpuLoad, &m), None);
+        m.top_cpu = vec![proc_info("Teams.exe", 0.712, 0)];
+        assert_eq!(culprit(Metric::CpuLoad, &m), Some(("Teams.exe".into(), "71%".into())));
+        m.top_cpu = vec![proc_info("idle.exe", 0.01, 0)];
+        assert_eq!(culprit(Metric::CpuLoad, &m), None);
+        m.top_mem = vec![proc_info("chrome.exe", 0.0, 3 * 1024 * 1024 * 1024)];
+        assert_eq!(culprit(Metric::MemUsage, &m).map(|c| c.0), Some("chrome.exe".into()));
+        assert_eq!(culprit(Metric::CpuTemp, &m), None);
+    }
 
     fn data(temp: Option<f32>) -> MetricsData {
         MetricsData { cpu_temp: temp, ..Default::default() }

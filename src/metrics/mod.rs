@@ -1,5 +1,7 @@
 pub mod battery;
 pub mod accessories;
+pub mod capture;
+pub mod growth;
 pub mod cpu;
 pub mod disks;
 pub mod drives;
@@ -91,6 +93,16 @@ pub struct MetricsData {
     pub gpu_available: bool,
     /// false on machines without a battery
     pub battery_available: bool,
+    /// Windows keeps the camera usage records (10 version 1903 and later); the microphone is
+    /// read from the audio sessions, available everywhere
+    pub camera_supported: bool,
+    /// programs using the microphone / camera now, longest first; read only while an alert
+    /// rule watches them (see `collector::Settings::capture`)
+    pub mic_use: Vec<capture::CaptureUse>,
+    pub camera_use: Vec<capture::CaptureUse>,
+    /// the program whose memory grew the most, steadily, over the last hours; sampled only while
+    /// the memory-growth alert rule is on
+    pub mem_growth: Option<growth::Grower>,
     /// CPU package temperature where a sensor source has one (None = not available)
     pub cpu_temp: Option<f32>,
     /// current clock per displayed core, MHz; empty when unknown
@@ -230,6 +242,8 @@ pub struct Metrics {
     pub cpu_utility: bool,
     /// samples taken, to space out the slower sensor reads
     ticks: u64,
+    /// sample the per-process lists without a popup (an alert rule is counting); see `watch_processes`
+    watching: bool,
 }
 
 impl Deref for Metrics {
@@ -275,6 +289,7 @@ impl Metrics {
             top_n: top_n.max(1),
             gpu_available,
             battery_available,
+            camera_supported: capture::supported(),
             ..Default::default()
         };
         Self {
@@ -288,6 +303,7 @@ impl Metrics {
             cpu_order,
             cpu_utility: true,
             ticks: 0,
+            watching: false,
         }
     }
 
@@ -319,6 +335,17 @@ impl Metrics {
     pub fn set_top_n(&mut self, n: usize) {
         self.procs.top_n = n.max(1);
         self.data.top_n = self.procs.top_n;
+    }
+
+    /// Sample the per-process lists on every tick even without a popup, so an alert can name the
+    /// program behind the load. Turning it on takes a fresh baseline unless the popup already
+    /// samples them (`details`).
+    pub fn watch_processes(&mut self, on: bool, details: bool) {
+        if on && !self.watching && !details {
+            self.procs.reset();
+            self.procs.update();
+        }
+        self.watching = on;
     }
 
     /// Called when the popup opens so the first per-process sample is not garbage.
@@ -465,12 +492,14 @@ impl Metrics {
         }
         self.ticks += 1;
 
-        if details {
+        if details || self.watching {
             self.procs.update();
             d.top_cpu = self.procs.top_cpu.clone();
             d.top_mem = self.procs.top_mem.clone();
             d.top_io = self.procs.top_io.clone();
             d.mem_processes = self.procs.mem_total;
+        }
+        if details {
             unsafe {
                 use windows::Win32::System::ProcessStatus::{GetPerformanceInfo, PERFORMANCE_INFORMATION};
                 let mut pi = PERFORMANCE_INFORMATION { cb: std::mem::size_of::<PERFORMANCE_INFORMATION>() as u32, ..Default::default() };

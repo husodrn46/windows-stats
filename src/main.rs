@@ -159,6 +159,13 @@ struct App {
     toast: toast::Toast,
     /// the settings page a click on the card on screen opens (a new version, an AI session)
     toast_page: Option<usize>,
+    /// the detail panel a click on an alert card opens (CPU, memory); Task Manager when that
+    /// widget is not on the strip
+    toast_panel: Option<Kind>,
+    /// what the collector was last told about sampling processes for an alert
+    watching_processes: bool,
+    /// the Windows privacy page a click on a microphone / camera card opens
+    toast_uri: Option<&'static str>,
     settings: settings::Settings,
     /// optional updates: what Settings > About shows and what is running
     update: update::State,
@@ -357,6 +364,9 @@ fn main() {
             alerts: alerts::Alerts::default(),
             toast,
             toast_page: None,
+            toast_panel: None,
+            watching_processes: false,
+            toast_uri: None,
             settings,
             update: update::State::Idle,
             update_retry_at: std::time::Instant::now(),
@@ -709,12 +719,52 @@ impl App {
             let (value, limit) = (f.rule.metric.format(f.value), f.rule.metric.format(f.rule.threshold));
             let secs = f.rule.seconds.to_string();
             let key = if f.rule.above { "alerts.fired_above" } else { "alerts.fired_below" };
-            let body = i18n::tf(key, &[("metric", &metric), ("limit", &limit), ("value", &value), ("seconds", &secs)]);
-            log!("alert: {body}");
+            let mut body = i18n::tf(key, &[("metric", &metric), ("limit", &limit), ("value", &value), ("seconds", &secs)]);
+            self.toast_panel = None;
+            self.toast_uri = f.rule.metric.privacy_page();
+            if f.rule.metric.is_capture() {
+                // "The microphone has been in use for 34 min" / "In use by: Zoom"
+                let names = alerts::culprit(f.rule.metric, &self.metrics).map(|c| c.0).unwrap_or_default();
+                body = i18n::tf("alerts.fired_capture", &[("metric", &metric), ("minutes", &format!("{:.0}", f.value))]);
+                if !names.is_empty() {
+                    body.push('\n');
+                    body.push_str(&i18n::tf("alerts.used_by", &[("name", &names)]));
+                }
+                body.push('\n');
+                body.push_str(&t("alerts.click_privacy"));
+            } else if f.rule.metric == alerts::Metric::MemGrowth {
+                // "chrome.exe keeps growing in memory: up 1.2 GB in 2 h, now 3.4 GB"
+                if let Some(g) = self.metrics.mem_growth.clone() {
+                    let hours = g.secs as f64 / 3600.0;
+                    let hours = if hours < 10.0 { util::format_decimal(hours, 1) } else { format!("{hours:.0}") };
+                    body = i18n::tf(
+                        "alerts.fired_growth",
+                        &[("name", &g.name), ("grown", &util::format_bytes(g.grown)), ("hours", &hours), ("now", &util::format_bytes(g.now))],
+                    );
+                }
+                body.push('\n');
+                body.push_str(&t("alerts.click_details"));
+                self.toast_panel = Some(Kind::Mem);
+            } else if f.rule.metric.names_culprit() {
+                if let Some((name, amount)) = alerts::culprit(f.rule.metric, &self.metrics) {
+                    body.push('\n');
+                    body.push_str(&i18n::tf("alerts.culprit", &[("name", &name), ("value", &amount)]));
+                }
+                body.push('\n');
+                body.push_str(&t("alerts.click_details"));
+                self.toast_panel = Some(if f.rule.metric == alerts::Metric::CpuLoad { Kind::Cpu } else { Kind::Mem });
+            }
+            log!("alert: {}", body.replace('\n', " "));
             let theme = self.theme();
             let light = self.is_light();
             self.toast.show(&theme, light, &t("alerts.title"), &body);
             self.toast_page = None;
+        }
+        // sample the process lists only while a CPU / memory rule is counting towards firing
+        let want = self.alerts.wants_processes(&self.cfg.alerts);
+        if want != self.watching_processes {
+            self.watching_processes = want;
+            self.send(Cmd::WatchProcesses(want));
         }
     }
 
@@ -1248,6 +1298,21 @@ impl App {
         self.layout.iter().find(|(_, _, a, b, c0, c1)| m >= *a && m < *b && c >= *c0 && c < *c1).cloned()
     }
 
+    /// Open the detail panel of `kind` as if its widget was clicked; Task Manager when no widget
+    /// of that kind is on the strip (an alert card names a program the user wants to look at).
+    fn open_panel(&mut self, kind: Kind) {
+        if self.popup.visible && self.popup.kind == Some(kind) {
+            return;
+        }
+        let Some((_, _, p0, p1, q0, q1)) = self.layout.iter().find(|(_, k, ..)| *k == kind).copied() else {
+            open_taskmgr();
+            return;
+        };
+        let (m, c) = ((p0 + p1) / 2, (q0 + q1) / 2);
+        let (x, y) = if self.taskbar.as_ref().map_or(false, |t| t.vertical()) { (c, m) } else { (m, c) };
+        self.click(x, y);
+    }
+
     /// Left click on the strip at bar-client (x, y).
     fn click(&mut self, x: i32, y: i32) {
         let Some((wi, kind, p0, p1, q0, q1)) = self.widget_at(x, y) else { return };
@@ -1719,6 +1784,10 @@ unsafe extern "system" fn toast_wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lp
                 if let Some(page) = app.toast_page.take() {
                     app.settings.page = page;
                     app.open_settings();
+                } else if let Some(kind) = app.toast_panel.take() {
+                    app.open_panel(kind);
+                } else if let Some(uri) = app.toast_uri.take() {
+                    shell_open(uri);
                 }
             });
             LRESULT(0)

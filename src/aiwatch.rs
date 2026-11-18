@@ -541,7 +541,7 @@ mod tests {
     use super::*;
 
     fn e(pid: u32, parent: u32, name: &str) -> Entry {
-        Entry { pid, parent, name: name.into(), cpu_time: 0, private: 0 }
+        Entry { pid, parent, name: name.into(), cpu_time: 0, private: 0, commit: 0 }
     }
 
     #[test]
