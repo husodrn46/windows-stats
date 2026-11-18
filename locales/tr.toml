@@ -191,6 +191,8 @@ gpu_temp = "Ekran kartı sıcaklığı"
 mem_usage = "Bellek kullanımı"
 disk_temp = "Disk sıcaklığı"
 battery_level = "Pil düzeyi"
+culprit = "En çok kullanan: {name} ({value})"
+click_details = "Ayrıntılar ve kapatma için tıkla."
 
 [settings]
 lhm_elevated = "Yardımcıyı yönetici olarak çalıştır"
