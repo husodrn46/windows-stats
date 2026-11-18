@@ -82,6 +82,8 @@ pub struct Config {
     pub update_last_check: u64,
     /// The newest version the user was told about, so each release is announced once.
     pub update_notified: String,
+    /// The version that last ran here, so the "what's new" card shows once after an update.
+    pub seen_version: String,
     /// Motion: values glide between samples, panels slide in. Also off while Windows'
     /// animation effects are off.
     pub animations: bool,
@@ -136,6 +138,7 @@ impl Default for Config {
             update_check: None,
             update_last_check: 0,
             update_notified: String::new(),
+            seen_version: String::new(),
             animations: true,
             ai_watch: None,
             ai_processes: Vec::new(),
@@ -276,6 +279,8 @@ mod tests {
         assert!(c.alerts[0].enabled && c.alerts[0].threshold == 80.0);
         let mic = c.alerts.iter().find(|r| r.metric == crate::alerts::Metric::MicInUse).unwrap();
         assert!(!mic.enabled);
+        let disk = c.alerts.iter().find(|r| r.metric == crate::alerts::Metric::DiskFree).unwrap();
+        assert!(!disk.enabled && !disk.above);
         assert_eq!(c.alerts.iter().filter(|r| r.metric == crate::alerts::Metric::CpuTemp).count(), 1);
     }
 

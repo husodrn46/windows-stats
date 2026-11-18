@@ -59,6 +59,7 @@ pub struct Settings {
 
 pub const PAGES: &[&str] = &["settings.page_general", "settings.page_appearance", "settings.page_widgets", "settings.page_sensors", "settings.page_alerts", "settings.page_ai", "settings.page_privacy", "settings.page_about"];
 /// Pages opened from cards in the corner.
+pub const PAGE_ALERTS: usize = 4;
 pub const PAGE_AI: usize = 5;
 pub const PAGE_ABOUT: usize = 7;
 
@@ -714,8 +715,12 @@ fn page_alerts(ui: &mut Ui, cfg: &Config, m: &MetricsData) {
         let lx = ui.x + ui.w - ui.t.s(16.0) - ui.t.s(136.0) - ui.t.s(10.0) - lw.0;
         ui.c.draw_text(&t("settings.limit"), lx, r.0 + (r.1 - lw.1) / 2, lf, ui.t.dim);
         let step = if rule.metric == Metric::MemGrowth { 0.5 } else { 5.0 };
+        // disk space: 1 GB steps up to 10 GB, 5 GB above
+        let disk = rule.metric == Metric::DiskFree;
         let (lo, hi) = if rule.metric == Metric::MemGrowth {
             (0.5, 8.0)
+        } else if disk {
+            (1.0, 200.0)
         } else if rule.metric.is_capture() {
             (5.0, 240.0)
         } else if rule.metric.is_temperature() {
@@ -728,8 +733,8 @@ fn page_alerts(ui: &mut Ui, cfg: &Config, m: &MetricsData) {
             r,
             off,
             &rule.metric.format(rule.threshold),
-            cfg_fx(move |c| if let Some(x) = c.alerts.get_mut(i) { x.threshold = (x.threshold - step).max(lo) }),
-            cfg_fx(move |c| if let Some(x) = c.alerts.get_mut(i) { x.threshold = (x.threshold + step).min(hi) }),
+            cfg_fx(move |c| if let Some(x) = c.alerts.get_mut(i) { x.threshold = (x.threshold - if disk && x.threshold <= 10.0 { 1.0 } else { step }).max(lo) }),
+            cfg_fx(move |c| if let Some(x) = c.alerts.get_mut(i) { x.threshold = (x.threshold + if disk && x.threshold < 10.0 { 1.0 } else { step }).min(hi) }),
         );
         if rule.above && !rule.metric.own_duration() {
             let off2 = ui.t.s(190.0);
@@ -761,7 +766,13 @@ fn page_ai(ui: &mut Ui, cfg: &Config, m: &MetricsData) {
     }
     let recent = crate::aiwatch::recent(10);
     if recent.is_empty() {
-        ui.note(&t(if on { "ai.none_yet" } else { "ai.none_off" }));
+        ui.note(&t(if on {
+            "ai.none_yet"
+        } else if cfg.ai_watch.is_none() {
+            "ai.none_unasked"
+        } else {
+            "ai.none_off"
+        }));
     } else {
         for s in &recent {
             ui.row(&format!("{} \u{00B7} {}", crate::aiwatch::when(s.start), crate::aiwatch::title(s)), &crate::aiwatch::summary(s));

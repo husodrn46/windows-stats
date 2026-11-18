@@ -21,7 +21,9 @@ Inspired by [Stats](https://github.com/exelban/stats) for macOS and built on
   the device cannot measure never raise a notification. A CPU or memory warning names the
   program using the most, and a click opens the matching panel, where it can be ended. Optional
   rules warn when one program has been using the microphone or the camera for longer than you set,
-  and when one program's memory keeps growing for hours (a slow leak that ends in a crawling PC).
+  when one program's memory keeps growing for hours (a slow leak that ends in a crawling PC), and
+  when a local drive is almost full (cloud drives such as Google Drive are left out). After an
+  update that brings new rules, a card says so once; a click opens Settings > Notifications.
 - **Local AI sessions** (optional, asked the first time): while a model runs in Ollama, llama.cpp,
   KoboldCpp or LocalAI, Windows Stats notes the highest CPU, GPU, video memory, memory and
   temperatures, shows a summary when it ends and keeps the sessions in Settings > AI.

@@ -26,10 +26,12 @@ pub enum Metric {
     CameraInUse,
     /// GB one program's memory grew by, steadily, over the last hours (a leak)
     MemGrowth,
+    /// GB free on the local drive with the least free space
+    DiskFree,
 }
 
 impl Metric {
-    pub const ALL: &'static [Metric] = &[Metric::CpuLoad, Metric::CpuTemp, Metric::GpuLoad, Metric::GpuTemp, Metric::MemUsage, Metric::DiskTemp, Metric::BatteryLevel, Metric::MicInUse, Metric::CameraInUse, Metric::MemGrowth];
+    pub const ALL: &'static [Metric] = &[Metric::CpuLoad, Metric::CpuTemp, Metric::GpuLoad, Metric::GpuTemp, Metric::MemUsage, Metric::DiskTemp, Metric::BatteryLevel, Metric::MicInUse, Metric::CameraInUse, Metric::MemGrowth, Metric::DiskFree];
 
     /// Current value, or None when this machine does not measure it.
     pub fn value(self, m: &MetricsData) -> Option<f32> {
@@ -44,6 +46,7 @@ impl Metric {
             Metric::MicInUse => Some(m.mic_use.first().map_or(0.0, |u| u.secs as f32 / 60.0)),
             Metric::CameraInUse => m.camera_supported.then(|| m.camera_use.first().map_or(0.0, |u| u.secs as f32 / 60.0)),
             Metric::MemGrowth => Some(m.mem_growth.as_ref().map_or(0.0, |g| g.grown as f32 / GIB)),
+            Metric::DiskFree => m.low_drive.as_ref().map(|d| d.free as f32 / GIB),
         }
     }
 
@@ -60,6 +63,7 @@ impl Metric {
             Metric::MicInUse => "alerts.mic_in_use",
             Metric::CameraInUse => "alerts.camera_in_use",
             Metric::MemGrowth => "alerts.mem_growth",
+            Metric::DiskFree => "alerts.disk_free",
         }
     }
 
@@ -75,11 +79,12 @@ impl Metric {
         matches!(self, Metric::MicInUse | Metric::CameraInUse)
     }
 
-    /// The Windows privacy page a click on the card opens.
-    pub fn privacy_page(self) -> Option<&'static str> {
+    /// The Windows settings page a click on the card opens (privacy, storage).
+    pub fn settings_uri(self) -> Option<&'static str> {
         match self {
             Metric::MicInUse => Some("ms-settings:privacy-microphone"),
             Metric::CameraInUse => Some("ms-settings:privacy-webcam"),
+            Metric::DiskFree => Some("ms-settings:storagesense"),
             _ => None,
         }
     }
@@ -99,6 +104,10 @@ impl Metric {
             crate::i18n::tf("alerts.minutes", &[("n", &format!("{v:.0}"))])
         } else if self == Metric::MemGrowth {
             format!("{} GB", crate::util::format_decimal(v as f64, 1))
+        } else if self == Metric::DiskFree {
+            // "10 GB", "4,2 GB"
+            let whole = v >= 10.0 || (v - v.round()).abs() < 0.05;
+            format!("{} GB", if whole { format!("{v:.0}") } else { crate::util::format_decimal(v as f64, 1) })
         } else if self.is_temperature() {
             format!("{v:.0} \u{00B0}C")
         } else {
@@ -138,6 +147,7 @@ pub fn default_rules() -> Vec<Rule> {
         Rule { enabled: false, metric: Metric::MicInUse, above: true, threshold: 30.0, seconds: 0 },
         Rule { enabled: false, metric: Metric::CameraInUse, above: true, threshold: 30.0, seconds: 0 },
         Rule { enabled: false, metric: Metric::MemGrowth, above: true, threshold: 1.0, seconds: 0 },
+        Rule { enabled: false, metric: Metric::DiskFree, above: false, threshold: 10.0, seconds: 60 },
     ]
 }
 
@@ -147,6 +157,8 @@ const GIB: f32 = 1024.0 * 1024.0 * 1024.0;
 fn hysteresis(rule: &Rule) -> f32 {
     if rule.metric == Metric::MemGrowth {
         0.25
+    } else if rule.metric == Metric::DiskFree {
+        2.0
     } else if rule.metric.is_temperature() {
         3.0
     } else {
@@ -230,6 +242,7 @@ pub fn culprit(metric: Metric, m: &MetricsData) -> Option<(String, String)> {
             let names: Vec<&str> = list.iter().take(3).map(|u| u.app.as_str()).collect();
             Some((names.join(", "), format!("{}", first.secs / 60)))
         }
+        Metric::DiskFree => m.low_drive.as_ref().map(|d| (d.name.clone(), crate::util::format_bytes(d.free))),
         _ => None,
     }
 }
@@ -264,6 +277,37 @@ mod tests {
         let mut off = rules.clone();
         off[0].enabled = false;
         assert!(!a.wants_processes(&off));
+    }
+
+    #[test]
+    fn disk_space_rule_fires_once_until_space_is_freed() {
+        use crate::metrics::drives::Drive;
+        let rules = vec![Rule { enabled: true, metric: Metric::DiskFree, above: false, threshold: 10.0, seconds: 60 }];
+        let mut a = Alerts::default();
+        let mut m = MetricsData::default();
+        // no local drive read: never measured, never fires
+        assert_eq!(Metric::DiskFree.value(&m), None);
+        let drive = |gb: f32| Drive { name: "C:".into(), label: String::new(), kind: "", fs: String::new(), readonly: false, free: (gb * GIB) as u64, total: 500 << 30 };
+        m.low_drive = Some(drive(25.0));
+        assert!(a.evaluate(&rules, &m, 60.0).is_empty());
+        m.low_drive = Some(drive(4.2));
+        // a minute below the limit: one card, naming the drive
+        assert!(a.evaluate(&rules, &m, 30.0).is_empty());
+        assert_eq!(a.evaluate(&rules, &m, 30.0).len(), 1);
+        assert_eq!(culprit(Metric::DiskFree, &m).map(|c| c.0), Some("C:".into()));
+        assert!(a.evaluate(&rules, &m, 60.0).is_empty());
+        // a little room back (within the 2 GB margin) does not re-arm it
+        m.low_drive = Some(drive(11.0));
+        a.evaluate(&rules, &m, 60.0);
+        m.low_drive = Some(drive(4.0));
+        assert!(a.evaluate(&rules, &m, 60.0).is_empty());
+        // freed for real, then filled again: a new card
+        m.low_drive = Some(drive(30.0));
+        a.evaluate(&rules, &m, 60.0);
+        m.low_drive = Some(drive(3.0));
+        assert_eq!(a.evaluate(&rules, &m, 60.0).len(), 1);
+        assert_eq!(Metric::DiskFree.format(10.0), "10 GB");
+        assert_eq!(Metric::DiskFree.settings_uri(), Some("ms-settings:storagesense"));
     }
 
     #[test]

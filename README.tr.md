@@ -25,7 +25,9 @@ geliştirilmiştir.
   Ölçülemeyen değerler hiçbir zaman bildirim üretmez. İşlemci ve bellek uyarıları en çok kullanan
   programın adını yazar; karta tıklayınca ilgili panel açılır, program oradan kapatılabilir. İsteğe
   bağlı kurallar, bir program mikrofonu ya da kamerayı belirlediğiniz süreden uzun kullanırsa ve bir
-  programın belleği saatler boyunca sürekli büyürse (sonunda bilgisayarı kilitleyen yavaş sızıntı) uyarır.
+  programın belleği saatler boyunca sürekli büyürse (sonunda bilgisayarı kilitleyen yavaş sızıntı) ve
+  yerel bir sürücü dolmak üzereyse (Google Drive gibi bulut sürücüleri sayılmaz) uyarır. Yeni kurallar
+  getiren bir güncellemeden sonra bunu bir kez bir kartla söyler; tıklayınca Ayarlar > Bildirimler açılır.
 - **Yerel yapay zekâ oturumları** (isteğe bağlı, ilk seferde sorulur): Ollama, llama.cpp, KoboldCpp
   ya da LocalAI ile bir model çalışırken Windows Stats en yüksek işlemci, ekran kartı, video belleği,
   bellek ve sıcaklık değerlerini not eder, bitince özet gösterir ve oturumları Ayarlar > Yapay zekâ'da

@@ -201,6 +201,9 @@ used_by = "In use by: {name}"
 click_privacy = "Click for the Windows privacy settings."
 mem_growth = "Memory growth"
 fired_growth = "{name} keeps growing in memory: up {grown} in {hours} h, now {now}."
+disk_free = "Free disk space"
+fired_disk = "Only {free} free left on {drive} (limit {limit})."
+click_storage = "Click for the Windows storage settings."
 click_details = "Click for details and to end it."
 
 [settings]
@@ -316,6 +319,7 @@ sessions = "Recent sessions"
 now = "Running now: {name}"
 none_yet = "No sessions yet. Run a model and Windows Stats notes it here."
 none_off = "Following is off."
+none_unasked = "Not asked yet: Windows Stats asks the first time a local model runs."
 clear = "Delete the saved sessions"
 mcp = "Connection for AI apps (MCP)"
 mcp_desc = "AI apps that support MCP (LM Studio, Claude Desktop, VS Code and others) can read this computer's load and these sessions from Windows Stats, read-only. Copy the setup and paste it into the app's MCP settings (mcpServers); the app starts Windows Stats with --mcp when it needs it and no network port is opened. Program names come only from the top_processes tool; with a cloud model they are sent to that service."
@@ -329,3 +333,7 @@ ask = "A local AI model is running ({runtime}).\n\nShould Windows Stats follow s
 peak_cpu = "CPU up to {v}"
 ram = "RAM"
 seconds = "{n} s"
+
+[news]
+title = "New in Windows Stats {version}"
+body = "Warnings now name the program behind them. New warnings, off until you switch them on: the microphone or camera in use for long, a program whose memory keeps growing, a disk that is almost full. Click to set them up."
