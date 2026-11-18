@@ -23,7 +23,8 @@ geliştirilmiştir.
   Windows ile başlatma, eşik bildirimleri, sensörler, gizlilik.
 - **Bildirimler**: örneğin "İşlemci kullanımı 60 sn boyunca %90 üzerinde kalırsa uyar".
   Ölçülemeyen değerler hiçbir zaman bildirim üretmez. İşlemci ve bellek uyarıları en çok kullanan
-  programın adını yazar; karta tıklayınca ilgili panel açılır, program oradan kapatılabilir.
+  programın adını yazar; karta tıklayınca ilgili panel açılır, program oradan kapatılabilir. İsteğe
+  bağlı kurallar, bir program mikrofonu ya da kamerayı belirlediğiniz süreden uzun kullanırsa uyarır.
 - **Yerel yapay zekâ oturumları** (isteğe bağlı, ilk seferde sorulur): Ollama, llama.cpp, KoboldCpp
   ya da LocalAI ile bir model çalışırken Windows Stats en yüksek işlemci, ekran kartı, video belleği,
   bellek ve sıcaklık değerlerini not eder, bitince özet gösterir ve oturumları Ayarlar > Yapay zekâ'da
@@ -140,6 +141,9 @@ yerine **"Bu cihazda kullanılamıyor"** olarak görünür.
   ölçümü de vardır. Varsayılan olarak kapalıdır ve ağ paneli açıkken yalnızca seçtiğiniz adrese ICMP gönderir. Ana bilgisayar adı girilirse DNS
   çözümlemesi gerekebilir. TCP'ye geçmez, bağdaştırıcı DNS sunucularını veya ağ geçitlerini
   alternatif hedef olarak yoklamaz. ICMP engellenirse gecikme ölçümü kullanılamaz.
+- **Mikrofon ve kamera uyarıları varsayılan olarak kapalıdır.** Açılırsa Windows Stats, Windows'un kendi
+  gizlilik sayfası için tuttuğu kullanım kayıtlarını (hangi program mikrofonu ya da kamerayı ne
+  zamandan beri kullanıyor) birkaç saniyede bir okur. Hiçbir şey kaydedilmez, saklanmaz, gönderilmez.
 - **Yerel yapay zekâ oturumları da isteğe bağlıdır.** Bir model ilk kez çalıştığında Windows Stats bu
   oturumları takip edip etmeyeceğini sorar; cevap Ayarlar > Yapay zekâ'dan değiştirilir. Modeli fark
   etmek için üç saniyede bir çalışan programların adlarına yalnızca bu bilgisayarda bakar. Model adını

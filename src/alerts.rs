@@ -20,10 +20,14 @@ pub enum Metric {
     MemUsage,
     DiskTemp,
     BatteryLevel,
+    /// minutes the microphone has been in use by one program
+    MicInUse,
+    /// minutes the camera has been in use by one program
+    CameraInUse,
 }
 
 impl Metric {
-    pub const ALL: &'static [Metric] = &[Metric::CpuLoad, Metric::CpuTemp, Metric::GpuLoad, Metric::GpuTemp, Metric::MemUsage, Metric::DiskTemp, Metric::BatteryLevel];
+    pub const ALL: &'static [Metric] = &[Metric::CpuLoad, Metric::CpuTemp, Metric::GpuLoad, Metric::GpuTemp, Metric::MemUsage, Metric::DiskTemp, Metric::BatteryLevel, Metric::MicInUse, Metric::CameraInUse];
 
     /// Current value, or None when this machine does not measure it.
     pub fn value(self, m: &MetricsData) -> Option<f32> {
@@ -35,6 +39,8 @@ impl Metric {
             Metric::MemUsage => (m.mem.total > 0).then_some(m.mem.pct * 100.0),
             Metric::DiskTemp => m.disks.iter().filter_map(|d| d.temp_c).fold(None, |a: Option<f32>, t| Some(a.map_or(t, |a| a.max(t)))),
             Metric::BatteryLevel => m.battery.map(|b| b.level * 100.0),
+            Metric::MicInUse => m.capture_supported.then(|| m.mic_use.first().map_or(0.0, |u| u.secs as f32 / 60.0)),
+            Metric::CameraInUse => m.capture_supported.then(|| m.camera_use.first().map_or(0.0, |u| u.secs as f32 / 60.0)),
         }
     }
 
@@ -48,6 +54,23 @@ impl Metric {
             Metric::MemUsage => "alerts.mem_usage",
             Metric::DiskTemp => "alerts.disk_temp",
             Metric::BatteryLevel => "alerts.battery_level",
+            Metric::MicInUse => "alerts.mic_in_use",
+            Metric::CameraInUse => "alerts.camera_in_use",
+        }
+    }
+
+    /// Microphone / camera: the value is how long one program has been using the device, in
+    /// minutes; the rule fires as soon as that passes the limit (no extra duration).
+    pub fn is_capture(self) -> bool {
+        matches!(self, Metric::MicInUse | Metric::CameraInUse)
+    }
+
+    /// The Windows privacy page a click on the card opens.
+    pub fn privacy_page(self) -> Option<&'static str> {
+        match self {
+            Metric::MicInUse => Some("ms-settings:privacy-microphone"),
+            Metric::CameraInUse => Some("ms-settings:privacy-webcam"),
+            _ => None,
         }
     }
 
@@ -60,9 +83,11 @@ impl Metric {
         matches!(self, Metric::CpuTemp | Metric::GpuTemp | Metric::DiskTemp)
     }
 
-    /// "85 °C", "90%"
+    /// "85 °C", "90%", "30 min"
     pub fn format(self, v: f32) -> String {
-        if self.is_temperature() {
+        if self.is_capture() {
+            crate::i18n::tf("alerts.minutes", &[("n", &format!("{v:.0}"))])
+        } else if self.is_temperature() {
             format!("{v:.0} \u{00B0}C")
         } else {
             format!("{v:.0}%")
@@ -98,6 +123,8 @@ pub fn default_rules() -> Vec<Rule> {
         Rule { enabled: false, metric: Metric::MemUsage, above: true, threshold: 90.0, seconds: 60 },
         Rule { enabled: false, metric: Metric::DiskTemp, above: true, threshold: 60.0, seconds: 60 },
         Rule { enabled: false, metric: Metric::BatteryLevel, above: false, threshold: 15.0, seconds: 10 },
+        Rule { enabled: false, metric: Metric::MicInUse, above: true, threshold: 30.0, seconds: 0 },
+        Rule { enabled: false, metric: Metric::CameraInUse, above: true, threshold: 30.0, seconds: 0 },
     ]
 }
 
@@ -176,6 +203,12 @@ pub fn culprit(metric: Metric, m: &MetricsData) -> Option<(String, String)> {
     match metric {
         Metric::CpuLoad => m.top_cpu.first().filter(|p| p.cpu >= 0.05).map(|p| (p.name.clone(), format!("{:.0}%", p.cpu * 100.0))),
         Metric::MemUsage => m.top_mem.first().filter(|p| p.mem >= 64 * 1024 * 1024).map(|p| (p.name.clone(), crate::util::format_bytes(p.mem))),
+        Metric::MicInUse | Metric::CameraInUse => {
+            let list = if metric == Metric::MicInUse { &m.mic_use } else { &m.camera_use };
+            let first = list.first()?;
+            let names: Vec<&str> = list.iter().take(3).map(|u| u.app.as_str()).collect();
+            Some((names.join(", "), format!("{}", first.secs / 60)))
+        }
         _ => None,
     }
 }
@@ -210,6 +243,31 @@ mod tests {
         let mut off = rules.clone();
         off[0].enabled = false;
         assert!(!a.wants_processes(&off));
+    }
+
+    #[test]
+    fn microphone_rule_fires_once_per_long_use() {
+        use crate::metrics::capture::CaptureUse;
+        let rules = vec![Rule { enabled: true, metric: Metric::MicInUse, above: true, threshold: 30.0, seconds: 0 }];
+        let mut a = Alerts::default();
+        let mut m = MetricsData { capture_supported: true, ..Default::default() };
+        assert_eq!(Metric::MicInUse.value(&m), Some(0.0));
+        assert!(a.evaluate(&rules, &m, 1.0).is_empty());
+        m.mic_use = vec![CaptureUse { app: "Zoom".into(), secs: 29 * 60 }];
+        assert!(a.evaluate(&rules, &m, 1.0).is_empty());
+        m.mic_use = vec![CaptureUse { app: "Zoom".into(), secs: 31 * 60 }, CaptureUse { app: "Discord".into(), secs: 60 }];
+        assert_eq!(a.evaluate(&rules, &m, 1.0).len(), 1);
+        assert_eq!(culprit(Metric::MicInUse, &m), Some(("Zoom, Discord".into(), "31".into())));
+        // still in use: no second card
+        m.mic_use[0].secs = 50 * 60;
+        assert!(a.evaluate(&rules, &m, 1.0).is_empty());
+        // released and used again for long: a new card
+        m.mic_use.clear();
+        a.evaluate(&rules, &m, 1.0);
+        m.mic_use = vec![CaptureUse { app: "Zoom".into(), secs: 40 * 60 }];
+        assert_eq!(a.evaluate(&rules, &m, 1.0).len(), 1);
+        // no records on this Windows: never measured, never fires
+        assert_eq!(Metric::CameraInUse.value(&MetricsData::default()), None);
     }
 
     #[test]

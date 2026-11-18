@@ -31,6 +31,8 @@ pub struct Settings {
     /// follow local AI sessions (None: not asked yet; detection still runs to ask)
     pub ai_watch: Option<bool>,
     pub ai_processes: Vec<String>,
+    /// an enabled alert rule watches the microphone or the camera
+    pub capture: bool,
 }
 
 impl Settings {
@@ -46,6 +48,7 @@ impl Settings {
             lhm: cfg.lhm_sensors,
             ai_watch: cfg.ai_watch,
             ai_processes: cfg.ai_processes.clone(),
+            capture: cfg.alerts.iter().any(|r| r.enabled && r.metric.is_capture()),
         }
     }
 }
@@ -152,6 +155,9 @@ fn run(rx: Receiver<Cmd>, latest: Arc<Mutex<Option<MetricsData>>>, posted: Arc<A
     let mut helper = crate::sensorhost::Supervisor::default();
     // local AI sessions: looks at the process list every few seconds
     let mut ai = crate::aiwatch::Watch::new(HWND(hwnd as *mut _));
+    // microphone / camera records: every few seconds, and only while a rule watches them
+    let mut capture_buf = Vec::new();
+    let mut capture_at = Instant::now();
     helper.sync(settings.lhm, settings.interval_ms.max(2000));
     let interval = |s: &Settings| Duration::from_millis(s.interval_ms.clamp(250, 60_000) as u64);
     let mut next = Instant::now() + interval(&settings);
@@ -246,6 +252,17 @@ fn run(rx: Receiver<Cmd>, latest: Arc<Mutex<Option<MetricsData>>>, posted: Arc<A
                     }
                     ai.tick(settings.ai_watch, &metrics.data, &settings.ai_processes);
                     metrics.data.ai_live = ai.current();
+                    if settings.capture && metrics.data.capture_supported {
+                        if Instant::now() >= capture_at {
+                            capture_at = Instant::now() + Duration::from_secs(5);
+                            let procs = crate::metrics::processes::entries(&mut capture_buf);
+                            metrics.data.mic_use = crate::metrics::capture::read(crate::metrics::capture::Device::Microphone, &procs);
+                            metrics.data.camera_use = crate::metrics::capture::read(crate::metrics::capture::Device::Camera, &procs);
+                        }
+                    } else if !metrics.data.mic_use.is_empty() || !metrics.data.camera_use.is_empty() {
+                        metrics.data.mic_use.clear();
+                        metrics.data.camera_use.clear();
+                    }
                     publish(&metrics);
                     let took = t0.elapsed();
                     if took > Duration::from_millis(250) && slow_logged < 20 {

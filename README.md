@@ -19,7 +19,8 @@ Inspired by [Stats](https://github.com/exelban/stats) for macOS and built on
   start with Windows, threshold notifications, sensors, privacy.
 - **Notifications**, e.g. "warn when CPU usage stays above 90% for 60 seconds". Values
   the device cannot measure never raise a notification. A CPU or memory warning names the
-  program using the most, and a click opens the matching panel, where it can be ended.
+  program using the most, and a click opens the matching panel, where it can be ended. Optional
+  rules warn when one program has been using the microphone or the camera for longer than you set.
 - **Local AI sessions** (optional, asked the first time): while a model runs in Ollama, llama.cpp,
   KoboldCpp or LocalAI, Windows Stats notes the highest CPU, GPU, video memory, memory and
   temperatures, shows a summary when it ends and keeps the sessions in Settings > AI.
@@ -147,6 +148,9 @@ as CPU temperatures may therefore be unavailable, even if you separately install
   measurement. It is off by default. While the network panel is open, it sends ICMP echo requests only to the address you
   choose. Hostnames may require a DNS lookup. It never falls back to TCP or probes adapter DNS
   servers or gateways; if ICMP is blocked, latency is unavailable.
+- **Microphone and camera warnings are off by default.** When switched on, Windows Stats reads, every
+  few seconds, the usage records Windows keeps for its own privacy page (which program uses the
+  microphone or camera, since when). Nothing is recorded, stored or sent.
 - **Local AI sessions are optional too.** The first time a model runs, Windows Stats asks whether
   to follow such sessions; Settings > AI changes the answer. To notice a model it looks at the
   names of running programs every three seconds, on this computer only. To show the model's name

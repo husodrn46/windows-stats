@@ -164,6 +164,8 @@ struct App {
     toast_panel: Option<Kind>,
     /// what the collector was last told about sampling processes for an alert
     watching_processes: bool,
+    /// the Windows privacy page a click on a microphone / camera card opens
+    toast_uri: Option<&'static str>,
     settings: settings::Settings,
     /// optional updates: what Settings > About shows and what is running
     update: update::State,
@@ -363,6 +365,7 @@ fn main() {
             toast_page: None,
             toast_panel: None,
             watching_processes: false,
+            toast_uri: None,
             settings,
             update: update::State::Idle,
             update_retry_at: std::time::Instant::now(),
@@ -716,7 +719,18 @@ impl App {
             let key = if f.rule.above { "alerts.fired_above" } else { "alerts.fired_below" };
             let mut body = i18n::tf(key, &[("metric", &metric), ("limit", &limit), ("value", &value), ("seconds", &secs)]);
             self.toast_panel = None;
-            if f.rule.metric.names_culprit() {
+            self.toast_uri = f.rule.metric.privacy_page();
+            if f.rule.metric.is_capture() {
+                // "The microphone has been in use for 34 min" / "In use by: Zoom"
+                let names = alerts::culprit(f.rule.metric, &self.metrics).map(|c| c.0).unwrap_or_default();
+                body = i18n::tf("alerts.fired_capture", &[("metric", &metric), ("minutes", &format!("{:.0}", f.value))]);
+                if !names.is_empty() {
+                    body.push('\n');
+                    body.push_str(&i18n::tf("alerts.used_by", &[("name", &names)]));
+                }
+                body.push('\n');
+                body.push_str(&t("alerts.click_privacy"));
+            } else if f.rule.metric.names_culprit() {
                 if let Some((name, amount)) = alerts::culprit(f.rule.metric, &self.metrics) {
                     body.push('\n');
                     body.push_str(&i18n::tf("alerts.culprit", &[("name", &name), ("value", &amount)]));
@@ -1757,6 +1771,8 @@ unsafe extern "system" fn toast_wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lp
                     app.open_settings();
                 } else if let Some(kind) = app.toast_panel.take() {
                     app.open_panel(kind);
+                } else if let Some(uri) = app.toast_uri.take() {
+                    shell_open(uri);
                 }
             });
             LRESULT(0)

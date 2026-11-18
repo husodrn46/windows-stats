@@ -225,6 +225,12 @@ impl Config {
         if !self.net_chart_rx && !self.net_chart_tx {
             self.net_chart_rx = true;
         }
+        // presets added in later versions (microphone, camera) appear, switched off
+        for preset in crate::alerts::default_rules() {
+            if !self.alerts.iter().any(|r| r.metric == preset.metric) {
+                self.alerts.push(preset);
+            }
+        }
     }
 
     /// The config as stored on disk, with a short header.
@@ -262,6 +268,16 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn older_files_get_new_alert_presets_switched_off() {
+        let old = "[[alerts]]\nenabled = true\nmetric = \"cpu_temp\"\nabove = true\nthreshold = 80.0\nseconds = 30\n";
+        let c = Config::parse(old).unwrap();
+        assert!(c.alerts[0].enabled && c.alerts[0].threshold == 80.0);
+        let mic = c.alerts.iter().find(|r| r.metric == crate::alerts::Metric::MicInUse).unwrap();
+        assert!(!mic.enabled);
+        assert_eq!(c.alerts.iter().filter(|r| r.metric == crate::alerts::Metric::CpuTemp).count(), 1);
+    }
 
     #[test]
     fn defaults_round_trip() {
