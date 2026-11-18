@@ -24,10 +24,12 @@ pub enum Metric {
     MicInUse,
     /// minutes the camera has been in use by one program
     CameraInUse,
+    /// GB one program's memory grew by, steadily, over the last hours (a leak)
+    MemGrowth,
 }
 
 impl Metric {
-    pub const ALL: &'static [Metric] = &[Metric::CpuLoad, Metric::CpuTemp, Metric::GpuLoad, Metric::GpuTemp, Metric::MemUsage, Metric::DiskTemp, Metric::BatteryLevel, Metric::MicInUse, Metric::CameraInUse];
+    pub const ALL: &'static [Metric] = &[Metric::CpuLoad, Metric::CpuTemp, Metric::GpuLoad, Metric::GpuTemp, Metric::MemUsage, Metric::DiskTemp, Metric::BatteryLevel, Metric::MicInUse, Metric::CameraInUse, Metric::MemGrowth];
 
     /// Current value, or None when this machine does not measure it.
     pub fn value(self, m: &MetricsData) -> Option<f32> {
@@ -41,6 +43,7 @@ impl Metric {
             Metric::BatteryLevel => m.battery.map(|b| b.level * 100.0),
             Metric::MicInUse => m.capture_supported.then(|| m.mic_use.first().map_or(0.0, |u| u.secs as f32 / 60.0)),
             Metric::CameraInUse => m.capture_supported.then(|| m.camera_use.first().map_or(0.0, |u| u.secs as f32 / 60.0)),
+            Metric::MemGrowth => Some(m.mem_growth.as_ref().map_or(0.0, |g| g.grown as f32 / GIB)),
         }
     }
 
@@ -56,7 +59,14 @@ impl Metric {
             Metric::BatteryLevel => "alerts.battery_level",
             Metric::MicInUse => "alerts.mic_in_use",
             Metric::CameraInUse => "alerts.camera_in_use",
+            Metric::MemGrowth => "alerts.mem_growth",
         }
+    }
+
+    /// The value already measures a span of time (minutes in use, growth over hours): the rule
+    /// fires as soon as it passes the limit, with no extra duration to set.
+    pub fn own_duration(self) -> bool {
+        self.is_capture() || self == Metric::MemGrowth
     }
 
     /// Microphone / camera: the value is how long one program has been using the device, in
@@ -87,6 +97,8 @@ impl Metric {
     pub fn format(self, v: f32) -> String {
         if self.is_capture() {
             crate::i18n::tf("alerts.minutes", &[("n", &format!("{v:.0}"))])
+        } else if self == Metric::MemGrowth {
+            format!("{} GB", crate::util::format_decimal(v as f64, 1))
         } else if self.is_temperature() {
             format!("{v:.0} \u{00B0}C")
         } else {
@@ -125,12 +137,21 @@ pub fn default_rules() -> Vec<Rule> {
         Rule { enabled: false, metric: Metric::BatteryLevel, above: false, threshold: 15.0, seconds: 10 },
         Rule { enabled: false, metric: Metric::MicInUse, above: true, threshold: 30.0, seconds: 0 },
         Rule { enabled: false, metric: Metric::CameraInUse, above: true, threshold: 30.0, seconds: 0 },
+        Rule { enabled: false, metric: Metric::MemGrowth, above: true, threshold: 1.0, seconds: 0 },
     ]
 }
 
+const GIB: f32 = 1024.0 * 1024.0 * 1024.0;
+
 /// Margin the value has to come back by before a fired rule can fire again.
 fn hysteresis(rule: &Rule) -> f32 {
-    if rule.metric.is_temperature() { 3.0 } else { 5.0 }
+    if rule.metric == Metric::MemGrowth {
+        0.25
+    } else if rule.metric.is_temperature() {
+        3.0
+    } else {
+        5.0
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -243,6 +264,28 @@ mod tests {
         let mut off = rules.clone();
         off[0].enabled = false;
         assert!(!a.wants_processes(&off));
+    }
+
+    #[test]
+    fn memory_growth_fires_once_per_leak() {
+        use crate::metrics::growth::Grower;
+        let rules = vec![Rule { enabled: true, metric: Metric::MemGrowth, above: true, threshold: 1.0, seconds: 0 }];
+        let mut a = Alerts::default();
+        let mut m = MetricsData::default();
+        assert_eq!(Metric::MemGrowth.value(&m), Some(0.0));
+        let g = |gb: f32| Grower { pid: 7, name: "leaky.exe".into(), grown: (gb * GIB) as u64, now: 3 * GIB as u64, secs: 7200 };
+        m.mem_growth = Some(g(0.8));
+        assert!(a.evaluate(&rules, &m, 1.0).is_empty());
+        m.mem_growth = Some(g(1.2));
+        assert_eq!(a.evaluate(&rules, &m, 1.0).len(), 1);
+        // still growing: one card, not one per sample
+        m.mem_growth = Some(g(1.6));
+        assert!(a.evaluate(&rules, &m, 1.0).is_empty());
+        // gave the memory back, leaked again later: a new card
+        m.mem_growth = None;
+        a.evaluate(&rules, &m, 1.0);
+        m.mem_growth = Some(g(1.1));
+        assert_eq!(a.evaluate(&rules, &m, 1.0).len(), 1);
     }
 
     #[test]

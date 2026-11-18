@@ -33,6 +33,8 @@ pub struct Settings {
     pub ai_processes: Vec<String>,
     /// an enabled alert rule watches the microphone or the camera
     pub capture: bool,
+    /// the memory-growth alert rule is on
+    pub growth: bool,
 }
 
 impl Settings {
@@ -49,6 +51,7 @@ impl Settings {
             ai_watch: cfg.ai_watch,
             ai_processes: cfg.ai_processes.clone(),
             capture: cfg.alerts.iter().any(|r| r.enabled && r.metric.is_capture()),
+            growth: cfg.alerts.iter().any(|r| r.enabled && r.metric == crate::alerts::Metric::MemGrowth),
         }
     }
 }
@@ -158,6 +161,10 @@ fn run(rx: Receiver<Cmd>, latest: Arc<Mutex<Option<MetricsData>>>, posted: Arc<A
     // microphone / camera records: every few seconds, and only while a rule watches them
     let mut capture_buf = Vec::new();
     let mut capture_at = Instant::now();
+    // memory growth: a process sample every 10 minutes while the rule is on
+    let mut growth = crate::metrics::growth::Growth::default();
+    let growth_start = Instant::now();
+    let mut growth_at = Instant::now();
     helper.sync(settings.lhm, settings.interval_ms.max(2000));
     let interval = |s: &Settings| Duration::from_millis(s.interval_ms.clamp(250, 60_000) as u64);
     let mut next = Instant::now() + interval(&settings);
@@ -262,6 +269,18 @@ fn run(rx: Receiver<Cmd>, latest: Arc<Mutex<Option<MetricsData>>>, posted: Arc<A
                     } else if !metrics.data.mic_use.is_empty() || !metrics.data.camera_use.is_empty() {
                         metrics.data.mic_use.clear();
                         metrics.data.camera_use.clear();
+                    }
+                    if settings.growth {
+                        if Instant::now() >= growth_at {
+                            growth_at = Instant::now() + Duration::from_secs(crate::metrics::growth::step_secs());
+                            let procs = crate::metrics::processes::entries(&mut capture_buf);
+                            growth.observe(&procs, growth_start.elapsed().as_secs());
+                            metrics.data.mem_growth = growth.worst();
+                        }
+                    } else if metrics.data.mem_growth.is_some() || growth_at > Instant::now() {
+                        growth.clear();
+                        metrics.data.mem_growth = None;
+                        growth_at = Instant::now();
                     }
                     publish(&metrics);
                     let took = t0.elapsed();

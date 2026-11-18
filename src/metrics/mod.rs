@@ -1,5 +1,6 @@
 pub mod battery;
 pub mod capture;
+pub mod growth;
 pub mod cpu;
 pub mod disks;
 pub mod drives;
@@ -96,6 +97,9 @@ pub struct MetricsData {
     /// rule watches them (see `collector::Settings::capture`)
     pub mic_use: Vec<capture::CaptureUse>,
     pub camera_use: Vec<capture::CaptureUse>,
+    /// the program whose memory grew the most, steadily, over the last hours; sampled only while
+    /// the memory-growth alert rule is on
+    pub mem_growth: Option<growth::Grower>,
     /// CPU package temperature where a sensor source has one (None = not available)
     pub cpu_temp: Option<f32>,
     /// current clock per displayed core, MHz; empty when unknown

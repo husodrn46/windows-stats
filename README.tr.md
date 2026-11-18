@@ -24,7 +24,8 @@ geliştirilmiştir.
 - **Bildirimler**: örneğin "İşlemci kullanımı 60 sn boyunca %90 üzerinde kalırsa uyar".
   Ölçülemeyen değerler hiçbir zaman bildirim üretmez. İşlemci ve bellek uyarıları en çok kullanan
   programın adını yazar; karta tıklayınca ilgili panel açılır, program oradan kapatılabilir. İsteğe
-  bağlı kurallar, bir program mikrofonu ya da kamerayı belirlediğiniz süreden uzun kullanırsa uyarır.
+  bağlı kurallar, bir program mikrofonu ya da kamerayı belirlediğiniz süreden uzun kullanırsa ve bir
+  programın belleği saatler boyunca sürekli büyürse (sonunda bilgisayarı kilitleyen yavaş sızıntı) uyarır.
 - **Yerel yapay zekâ oturumları** (isteğe bağlı, ilk seferde sorulur): Ollama, llama.cpp, KoboldCpp
   ya da LocalAI ile bir model çalışırken Windows Stats en yüksek işlemci, ekran kartı, video belleği,
   bellek ve sıcaklık değerlerini not eder, bitince özet gösterir ve oturumları Ayarlar > Yapay zekâ'da

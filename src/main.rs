@@ -730,6 +730,19 @@ impl App {
                 }
                 body.push('\n');
                 body.push_str(&t("alerts.click_privacy"));
+            } else if f.rule.metric == alerts::Metric::MemGrowth {
+                // "chrome.exe keeps growing in memory: up 1.2 GB in 2 h, now 3.4 GB"
+                if let Some(g) = self.metrics.mem_growth.clone() {
+                    let hours = g.secs as f64 / 3600.0;
+                    let hours = if hours < 10.0 { util::format_decimal(hours, 1) } else { format!("{hours:.0}") };
+                    body = i18n::tf(
+                        "alerts.fired_growth",
+                        &[("name", &g.name), ("grown", &util::format_bytes(g.grown)), ("hours", &hours), ("now", &util::format_bytes(g.now))],
+                    );
+                }
+                body.push('\n');
+                body.push_str(&t("alerts.click_details"));
+                self.toast_panel = Some(Kind::Mem);
             } else if f.rule.metric.names_culprit() {
                 if let Some((name, amount)) = alerts::culprit(f.rule.metric, &self.metrics) {
                     body.push('\n');

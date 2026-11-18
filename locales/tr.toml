@@ -198,6 +198,8 @@ minutes = "{n} dk"
 fired_capture = "{metric} {minutes} dakikadır kullanımda."
 used_by = "Kullanan: {name}"
 click_privacy = "Windows gizlilik ayarları için tıkla."
+mem_growth = "Bellek şişmesi"
+fired_growth = "{name} bellekte sürekli büyüyor: {hours} saatte {grown} arttı, şu an {now}."
 click_details = "Ayrıntılar ve kapatma için tıkla."
 
 [settings]
@@ -256,6 +258,7 @@ alerts_desc = "Bir değer belirlenen süre boyunca sınırın ötesinde kalırsa
 alert_above = "{seconds} sn boyunca {limit} üzerinde"
 alert_below = "{limit} altında"
 alert_capture = "bir program {limit} boyunca kullanırsa"
+alert_growth = "bir program saatler içinde sürekli büyüyüp {limit} artarsa"
 not_measured = "bu cihazda ölçülmüyor"
 seconds_short = "sn"
 privacy_desc = "Windows Stats telemetri toplamaz; sizinle ya da bu bilgisayarla ilgili hiçbir veriyi hiçbir yere göndermez. Ağ portu açmaz, internet bağlantısı gerektirmez. Ölçtüğü her şey bu bilgisayarda kalır."

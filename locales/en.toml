@@ -199,6 +199,8 @@ minutes = "{n} min"
 fired_capture = "The {metric} has been in use for {minutes} min."
 used_by = "In use by: {name}"
 click_privacy = "Click for the Windows privacy settings."
+mem_growth = "Memory growth"
+fired_growth = "{name} keeps growing in memory: up {grown} in {hours} h, now {now}."
 click_details = "Click for details and to end it."
 
 [settings]
@@ -257,6 +259,7 @@ alerts_desc = "A notification appears when a value stays past its limit for the 
 alert_above = "above {limit} for {seconds} s"
 alert_below = "below {limit}"
 alert_capture = "used by one program for {limit}"
+alert_growth = "one program keeps growing by more than {limit} over hours"
 not_measured = "not measured on this device"
 seconds_short = "s"
 privacy_desc = "Windows Stats collects no telemetry and sends nothing about you or this computer anywhere. It opens no network ports and needs no internet connection. Everything it measures stays on this computer."
