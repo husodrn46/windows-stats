@@ -737,7 +737,9 @@ fn page_alerts(ui: &mut Ui, cfg: &Config, m: &MetricsData) {
             cfg_fx(move |c| if let Some(x) = c.alerts.get_mut(i) { x.threshold = (x.threshold + if disk && x.threshold < 10.0 { 1.0 } else { step }).min(hi) }),
         );
         if rule.above && !rule.metric.own_duration() {
-            let off2 = ui.t.s(190.0);
+            // the duration block sits left of the limit label, however long the label is in this
+            // language ("Limit", "Grenzwert", "Giới hạn"); 190 px for a short one, as before
+            let off2 = ui.t.s(162.0) + lw.0.max(ui.t.s(28.0));
             let dw = ui.c.measure_text(&t("settings.duration"), lf);
             let dx = ui.x + ui.w - ui.t.s(16.0) - off2 - ui.t.s(136.0) - ui.t.s(10.0) - dw.0;
             ui.c.draw_text(&t("settings.duration"), dx, r.0 + (r.1 - dw.1) / 2, lf, ui.t.dim);
