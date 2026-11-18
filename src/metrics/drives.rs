@@ -1,11 +1,16 @@
 //! Fixed, removable and optical drives with label, file system, free and total space.
 
 use crate::util::{pcwstr, wide};
-use windows::Win32::Storage::FileSystem::{GetDiskFreeSpaceExW, GetDriveTypeW, GetLogicalDrives, GetVolumeInformationW, QueryDosDeviceW};
+use windows::Win32::Foundation::CloseHandle;
+use windows::Win32::Storage::FileSystem::{CreateFileW, GetDiskFreeSpaceExW, GetDriveTypeW, GetLogicalDrives, GetVolumeInformationW, QueryDosDeviceW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING};
+use windows::Win32::System::Ioctl::{IOCTL_STORAGE_GET_DEVICE_NUMBER, STORAGE_DEVICE_NUMBER};
+use windows::Win32::System::IO::DeviceIoControl;
 
 const DRIVE_REMOVABLE: u32 = 2;
 const DRIVE_FIXED: u32 = 3;
 const DRIVE_CDROM: u32 = 5;
+/// STORAGE_DEVICE_NUMBER.DeviceType of a volume on a disk (FILE_DEVICE_DISK)
+const FILE_DEVICE_DISK: u32 = 7;
 
 #[derive(Clone, Debug)]
 pub struct Drive {
@@ -35,6 +40,60 @@ fn is_floppy(letter: char) -> bool {
         return letter == 'A' || letter == 'B';
     }
     String::from_utf16_lossy(&target[..n.min(target.len())]).to_ascii_lowercase().contains("\\device\\floppy")
+}
+
+/// A drive letter Windows calls fixed but that is not a volume on a disk: cloud drives such as
+/// Google Drive ("G:") report themselves as a disk file system, and their "free space" is the
+/// cloud quota or the cache. Unknown when the query fails (counted as a disk).
+fn virtual_drive(letter: char) -> bool {
+    let path = wide(&format!("\\\\.\\{letter}:"));
+    unsafe {
+        let Ok(h) = CreateFileW(pcwstr(&path), 0, FILE_SHARE_READ | FILE_SHARE_WRITE, None, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, None) else { return false };
+        let mut n = STORAGE_DEVICE_NUMBER::default();
+        let mut got = 0u32;
+        let ok = DeviceIoControl(
+            h,
+            IOCTL_STORAGE_GET_DEVICE_NUMBER,
+            None,
+            0,
+            Some(&mut n as *mut _ as *mut _),
+            std::mem::size_of::<STORAGE_DEVICE_NUMBER>() as u32,
+            Some(&mut got),
+            None,
+        )
+        .is_ok();
+        let _ = CloseHandle(h);
+        ok && n.DeviceType != FILE_DEVICE_DISK
+    }
+}
+
+/// The local fixed drive with the least free space, for the disk-space alert. Removable and
+/// optical drives are not touched; volumes under 1 GB (small vendor partitions) and cloud drives
+/// (see `virtual_drive`) are skipped.
+pub fn lowest_fixed() -> Option<Drive> {
+    let mask = unsafe { GetLogicalDrives() };
+    let mut best: Option<Drive> = None;
+    for i in 0..26 {
+        if mask & (1 << i) == 0 {
+            continue;
+        }
+        let letter = (b'A' + i as u8) as char;
+        let root = wide(&format!("{letter}:\\"));
+        unsafe {
+            if GetDriveTypeW(pcwstr(&root)) != DRIVE_FIXED || virtual_drive(letter) {
+                continue;
+            }
+            let mut free = 0u64;
+            let mut total = 0u64;
+            if GetDiskFreeSpaceExW(pcwstr(&root), None, Some(&mut total), Some(&mut free)).is_err() || total < 1 << 30 {
+                continue;
+            }
+            if best.as_ref().map_or(true, |b| free < b.free) {
+                best = Some(Drive { name: format!("{letter}:"), label: String::new(), kind: "", fs: String::new(), readonly: false, free, total });
+            }
+        }
+    }
+    best
 }
 
 pub fn list() -> Vec<Drive> {

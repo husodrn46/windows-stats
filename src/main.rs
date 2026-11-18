@@ -80,6 +80,9 @@ const UPDATE_TIMER_MS: u32 = 15 * 60 * 1000;
 /// optional updates: the one-time question, a few seconds after the first start of this version
 const TIMER_UPDATE_ASK: usize = 12;
 const UPDATE_ASK_MS: u32 = 8000;
+/// the one-time "what's new" card, a few seconds after the first start of a version with news
+const TIMER_NEWS: usize = 14;
+const NEWS_MS: u32 = 4000;
 /// auto mode, floating because the taskbar refused the strip: how often embedding is retried
 const EMBED_RETRY: std::time::Duration = std::time::Duration::from_secs(60);
 
@@ -323,6 +326,12 @@ fn main() {
             cfg.save();
         }
     }
+    // remember the version that runs; an update to a release with news shows its card once
+    let news = update::news_due(first_run, &cfg.seen_version, update::current());
+    if cfg.seen_version != about::VERSION {
+        cfg.seen_version = about::VERSION.to_string();
+        cfg.save();
+    }
     let widgets = widgets::build(&cfg.widgets);
     let popup = Popup::new(hinstance, CLASS_POPUP, backdrop::Opacity::from_config(&cfg.popup_opacity)).expect("popup window");
     let about = About::new(hinstance, CLASS_ABOUT).expect("about window");
@@ -398,6 +407,9 @@ fn main() {
         SetTimer(hidden, TIMER_UPDATE, UPDATE_TIMER_MS, None);
         if cfg.update_check.is_none() {
             SetTimer(hidden, TIMER_UPDATE_ASK, UPDATE_ASK_MS, None);
+        }
+        if news {
+            SetTimer(hidden, TIMER_NEWS, NEWS_MS, None);
         }
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).into() {
@@ -719,7 +731,7 @@ impl App {
             let key = if f.rule.above { "alerts.fired_above" } else { "alerts.fired_below" };
             let mut body = i18n::tf(key, &[("metric", &metric), ("limit", &limit), ("value", &value), ("seconds", &secs)]);
             self.toast_panel = None;
-            self.toast_uri = f.rule.metric.privacy_page();
+            self.toast_uri = f.rule.metric.settings_uri();
             if f.rule.metric.is_capture() {
                 // "The microphone has been in use for 34 min" / "In use by: Zoom"
                 let names = alerts::culprit(f.rule.metric, &self.metrics).map(|c| c.0).unwrap_or_default();
@@ -730,6 +742,13 @@ impl App {
                 }
                 body.push('\n');
                 body.push_str(&t("alerts.click_privacy"));
+            } else if f.rule.metric == alerts::Metric::DiskFree {
+                // "Only 4.2 GB free left on C: (limit 10 GB)"
+                if let Some((drive, free)) = alerts::culprit(f.rule.metric, &self.metrics) {
+                    body = i18n::tf("alerts.fired_disk", &[("drive", &drive), ("free", &free), ("limit", &limit)]);
+                }
+                body.push('\n');
+                body.push_str(&t("alerts.click_storage"));
             } else if f.rule.metric == alerts::Metric::MemGrowth {
                 // "chrome.exe keeps growing in memory: up 1.2 GB in 2 h, now 3.4 GB"
                 if let Some(g) = self.metrics.mem_growth.clone() {
@@ -881,6 +900,15 @@ impl App {
         let light = self.is_light();
         self.toast.show(&theme, light, &i18n::tf("ai.ended_title", &[("name", &aiwatch::title(s))]), &aiwatch::summary(s));
         self.toast_page = Some(settings::PAGE_AI);
+    }
+
+    /// The card in the corner, once after an update: what this version adds. A click opens
+    /// Settings > Notifications, where the new rules are switched on.
+    fn show_news(&mut self) {
+        let theme = self.theme();
+        let light = self.is_light();
+        self.toast.show(&theme, light, &i18n::tf("news.title", &[("version", about::VERSION)]), &t("news.body"));
+        self.toast_page = Some(settings::PAGE_ALERTS);
     }
 
     /// The card in the corner: a new version; clicking it opens Settings > About.
@@ -1559,6 +1587,12 @@ unsafe extern "system" fn hidden_wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, l
                 }
                 TIMER_UPDATE => {
                     with_app(|app| app.update_timer());
+                }
+                TIMER_NEWS => {
+                    unsafe {
+                        let _ = KillTimer(hwnd, TIMER_NEWS);
+                    }
+                    with_app(|app| app.show_news());
                 }
                 TIMER_GLIDE => {
                     with_app(|app| app.glide_frame());

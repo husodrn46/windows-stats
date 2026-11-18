@@ -101,6 +101,8 @@ pub struct MetricsData {
     /// the program whose memory grew the most, steadily, over the last hours; sampled only while
     /// the memory-growth alert rule is on
     pub mem_growth: Option<growth::Grower>,
+    /// the local fixed drive with the least free space; read once a minute (disk-space alert)
+    pub low_drive: Option<drives::Drive>,
     /// CPU package temperature where a sensor source has one (None = not available)
     pub cpu_temp: Option<f32>,
     /// current clock per displayed core, MHz; empty when unknown

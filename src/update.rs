@@ -50,6 +50,15 @@ pub fn parse_version(s: &str) -> Option<Version> {
     Some((num(parts[0])?, num(parts[1])?, num(parts[2])?))
 }
 
+/// The release whose additions the one-time "what's new" card describes.
+pub const NEWS: Version = (0, 1, 8);
+
+/// Show the "what's new" card: an install that last ran a version older than `NEWS` (or one
+/// from before versions were remembered) now runs `NEWS` or later. Never on a first run.
+pub fn news_due(first_run: bool, seen: &str, current: Version) -> bool {
+    !first_run && current >= NEWS && parse_version(seen).map_or(true, |v| v < NEWS)
+}
+
 /// The version this program compares releases with. Debug builds can pretend to be older
 /// (`WINDOWS_STATS_UPDATE_AS=0.1.2`) to exercise an update end to end.
 pub fn current() -> Version {
@@ -495,6 +504,21 @@ pub fn due(enabled: Option<bool>, last: u64, now: u64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn news_card_once_after_updating_to_the_release_with_news() {
+        // 0.1.7 had no record of the version it ran: updated to 0.1.8, the card shows
+        assert!(news_due(false, "", (0, 1, 8)));
+        assert!(news_due(false, "0.1.7", (0, 1, 8)));
+        // shown once: the next start remembers 0.1.8
+        assert!(!news_due(false, "0.1.8", (0, 1, 8)));
+        // a later version does not repeat it; skipping 0.1.8 still shows it
+        assert!(!news_due(false, "0.1.8", (0, 1, 9)));
+        assert!(news_due(false, "0.1.7", (0, 1, 9)));
+        // never on a first run, never before the release itself
+        assert!(!news_due(true, "", (0, 1, 8)));
+        assert!(!news_due(false, "", (0, 1, 7)));
+    }
 
     fn release_json(tag: &str, name: &str, url: &str, digest: &str, draft: bool, size: u64) -> String {
         format!(

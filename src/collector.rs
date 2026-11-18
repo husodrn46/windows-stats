@@ -163,6 +163,8 @@ fn run(rx: Receiver<Cmd>, latest: Arc<Mutex<Option<MetricsData>>>, posted: Arc<A
     let mut capture_at = Instant::now();
     let mut mic = crate::metrics::capture::MicWatch::default();
     let started = Instant::now();
+    // free space of the local drives: once a minute (a handful of cheap calls)
+    let mut drive_at = Instant::now();
     // memory growth: a process sample every 10 minutes while the rule is on
     let mut growth = crate::metrics::growth::Growth::default();
     let mut growth_at = Instant::now();
@@ -275,6 +277,10 @@ fn run(rx: Receiver<Cmd>, latest: Arc<Mutex<Option<MetricsData>>>, posted: Arc<A
                         mic.clear();
                         metrics.data.mic_use.clear();
                         metrics.data.camera_use.clear();
+                    }
+                    if Instant::now() >= drive_at {
+                        drive_at = Instant::now() + Duration::from_secs(60);
+                        metrics.data.low_drive = crate::metrics::drives::lowest_fixed();
                     }
                     if settings.growth {
                         if Instant::now() >= growth_at {
